@@ -1,2 +1,17 @@
 initrd/
 initrd.cpio.gz
+
+uspace
+
+# Kernel module build stuff
+*.ko
+*.mod
+*.mod.c
+*.o
+*.ko.cmd
+*.mod.cmd
+*.o.cmd
+*.order
+*.order.cmd
+*.symvers
+*.symvers.cmd
