@@ -3,7 +3,14 @@
 mkdir -p initrd/{dev,bin,sbin,etc,proc,sys,usr/{bin,sbin}}
 cp -av ../busybox/_install/* initrd/
 cd initrd
-ln -sf bin/busybox init
+
+## Use busybox init
+#ln -sf bin/busybox init
+
+## Use custom init
+cp ../init init
+sudo chmod +x init
+
 sudo mknod -m 660 dev/mem c 1 1
 sudo mknod -m 660 dev/tty2 c 4 2
 sudo mknod -m 660 dev/tty3 c 4 3
