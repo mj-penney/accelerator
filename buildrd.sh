@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [ -d initrd ]; then
+    rm -rf initrd
+fi
+
 mkdir -p initrd/{dev,bin,sbin,etc,proc,sys,usr/{bin,sbin}}
 cp -av ../busybox/_install/* initrd/
 cd initrd
