@@ -6,4 +6,4 @@ mount -t devtmpfs devtmpfs /dev
 
 echo "Welcome!"
 
-exec /bin/sh
+exec /sbin/init
