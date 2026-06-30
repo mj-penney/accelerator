@@ -25,6 +25,7 @@ cp uspace initrd/bin/
 
 ## Build and copy driver into initrd
 make
+if [ $? -ne "0" ]; then exit; fi
 cp accelerator.ko initrd/
 
 cd initrd
