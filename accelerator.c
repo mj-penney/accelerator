@@ -6,8 +6,9 @@
 #define MJP_ACCEL_VENDOR_ID 0x1234
 #define MJP_ACCEL_DEVICE_ID 0x11e8
 
-#define MJP_ACCEL_R0_OFFSET 0x00
-#define MJP_ACCEL_R1_OFFSET 0x04
+#define MJP_ACCEL_DMA_ADDR_LO_OFFSET 0x00
+#define MJP_ACCEL_DMA_ADDR_HI_OFFSET 0x04
+#define MJP_ACCEL_DMA_LEN_OFFSET 0x08
 
 struct mjp_accel {
     struct pci_dev *pdev;
@@ -23,7 +24,8 @@ static int my_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
     struct mjp_accel *mjp;
-    uint32_t r0 = 0;
+    uint32_t dma_addr_lo = 0;
+    //uint32_t dma_addr_hi = 0;
     int res = 0;
 
     res = pcim_enable_device(pdev);
@@ -45,12 +47,12 @@ static int my_probe(struct pci_dev *pdev,
 
     pci_set_drvdata(pdev, mjp);
 
-    r0 = ioread32(mjp->regs + MJP_ACCEL_R0_OFFSET);
+    dma_addr_lo = ioread32(mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
 
-    pr_info("r0 = %d\n", r0);
+    pr_info("dma_addr_lo = %d\n", dma_addr_lo);
 
-    iowrite32(7, mjp->regs + MJP_ACCEL_R0_OFFSET);
-    iowrite32(3, mjp->regs + MJP_ACCEL_R1_OFFSET);
+    iowrite32(7, mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
+    iowrite32(3, mjp->regs + MJP_ACCEL_DMA_ADDR_HI_OFFSET);
 
     return 0;
 }
