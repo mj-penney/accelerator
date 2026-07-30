@@ -54,6 +54,42 @@ static int my_probe(struct pci_dev *pdev,
     iowrite32(7, mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
     iowrite32(3, mjp->regs + MJP_ACCEL_DMA_ADDR_HI_OFFSET);
 
+    /* set dma mask */
+
+    res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+    if (res) {
+        res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+    }
+    if (res) {
+        return res;
+    }
+    
+    /* allocate a dma buffer */
+
+    void *cpu_addr;
+    dma_addr_t dma_addr;
+
+    cpu_addr = dma_alloc_coherent(&pdev->dev,
+                                  PAGE_SIZE,
+                                  &dma_addr,
+                                  GFP_KERNEL);
+
+    if (!cpu_addr) {
+        return -ENOMEM;
+    }
+
+    /* program the device */
+
+    iowrite32(lower_32_bits(dma_addr),
+              mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
+    iowrite32(upper_32_bits(dma_addr),
+              mjp->regs + MJP_ACCEL_DMA_ADDR_HI_OFFSET);
+    iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_LEN_OFFSET);
+
+    /* clean up buffer */
+
+
+
     return 0;
 }
 
