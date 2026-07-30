@@ -6,9 +6,9 @@
 #define MJP_ACCEL_VENDOR_ID 0x1234
 #define MJP_ACCEL_DEVICE_ID 0x11e8
 
-#define MJP_ACCEL_DMA_ADDR_LO_OFFSET 0x00
-#define MJP_ACCEL_DMA_ADDR_HI_OFFSET 0x04
-#define MJP_ACCEL_DMA_LEN_OFFSET 0x08
+#define MJP_ACCEL_DMA_ADDR_LO 0x00
+#define MJP_ACCEL_DMA_ADDR_HI 0x04
+#define MJP_ACCEL_DMA_ADDR_SIZE 0x08
 
 struct mjp_accel {
     struct pci_dev *pdev;
@@ -47,12 +47,12 @@ static int my_probe(struct pci_dev *pdev,
 
     pci_set_drvdata(pdev, mjp);
 
-    dma_addr_lo = ioread32(mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
+    dma_addr_lo = ioread32(mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
 
     pr_info("dma_addr_lo = %d\n", dma_addr_lo);
 
-    iowrite32(7, mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
-    iowrite32(3, mjp->regs + MJP_ACCEL_DMA_ADDR_HI_OFFSET);
+    iowrite32(7, mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
+    iowrite32(3, mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
 
     /* set dma mask */
 
@@ -81,10 +81,10 @@ static int my_probe(struct pci_dev *pdev,
     /* program the device */
 
     iowrite32(lower_32_bits(dma_addr),
-              mjp->regs + MJP_ACCEL_DMA_ADDR_LO_OFFSET);
+              mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
     iowrite32(upper_32_bits(dma_addr),
-              mjp->regs + MJP_ACCEL_DMA_ADDR_HI_OFFSET);
-    iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_LEN_OFFSET);
+              mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
+    iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_ADDR_SIZE);
 
     /* clean up buffer */
 
