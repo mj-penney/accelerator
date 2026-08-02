@@ -1,3 +1,7 @@
+#include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/uaccess.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -13,7 +17,47 @@
 struct mjp_accel {
     struct pci_dev *pdev;
     void __iomem *regs;
+    struct cdev cdev;
+    dev_t devt;
 };
+
+/* FILE OPERATIONS */
+
+static int accel_open(struct inode *inode, struct file *file)
+{
+    struct mjp_accel *mjp;
+
+    mjp = container_of(inode->i_cdev,
+                       struct mjp_accel,
+                       cdev);
+
+    file->private_data = mjp;
+
+    return 0;
+}
+
+static int accel_release(struct inode *inode, struct file *file)
+{
+    return 0;
+}
+
+static long accel_ioctl(struct file *file,
+                        unsigned int cmd,
+                        unsigned long arg)
+{
+    return 0;
+}
+
+static const struct file_operations accel_fops = {
+    .owner = THIS_MODULE,
+    .open = accel_open,
+    .release = accel_release,
+    .unlocked_ioctl = accel_ioctl,
+};
+
+/* DEVICE SETUP */
+
+static struct class *mjp_accel_class;
 
 static const struct pci_device_id my_ids[] = {
     { PCI_DEVICE(MJP_ACCEL_VENDOR_ID, MJP_ACCEL_DEVICE_ID) },
@@ -45,6 +89,7 @@ static int my_probe(struct pci_dev *pdev,
 
     mjp->regs = pcim_iomap_table(pdev)[0];
 
+    mjp->pdev = pdev;
     pci_set_drvdata(pdev, mjp);
 
     dma_addr_lo = ioread32(mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
@@ -90,11 +135,39 @@ static int my_probe(struct pci_dev *pdev,
 
 
 
+    /* set up cdev */
+
+    res = alloc_chrdev_region(&mjp->devt, 0, 1, "mjp_accel");
+    if (res) {
+        return res;
+    }
+
+    cdev_init(&mjp->cdev, &accel_fops);
+    mjp->cdev.owner = THIS_MODULE;
+
+    res = cdev_add(&mjp->cdev, mjp->devt, 1);
+    if (res) {
+        unregister_chrdev_region(mjp->devt, 1);
+        return res;
+    }
+
+    device_create(mjp_accel_class,
+                  &pdev->dev,
+                  mjp->devt,
+                  NULL,
+                  "mjp_accel");
+
     return 0;
 }
 
 static void my_remove(struct pci_dev *pdev)
 {
+    struct mjp_accel *mjp = pci_get_drvdata(pdev);
+
+    device_destroy(mjp_accel_class, mjp->devt);
+    cdev_del(&mjp->cdev);
+    unregister_chrdev_region(mjp->devt, 1);
+
     pr_info("Removing accelerator\n");
 }
 
@@ -109,14 +182,28 @@ MODULE_DEVICE_TABLE(pci, my_ids);
 
 static int __init my_init(void)
 {
+    int res;
+
     pr_info("hello from module\n");
 
-    return pci_register_driver(&my_pci_driver);
+    mjp_accel_class = class_create("mjp_accel");
+    if (IS_ERR(mjp_accel_class)) {
+        return PTR_ERR(mjp_accel_class);
+    }
+
+    res = pci_register_driver(&my_pci_driver);
+    if (res) {
+        class_destroy(mjp_accel_class);
+        return res;
+    }
+
+    return 0;
 }
 
 static void __exit my_exit(void)
 {
     pci_unregister_driver(&my_pci_driver);
+    class_destroy(mjp_accel_class);
     pr_info("goodbye\n");
 }
 
