@@ -75,53 +75,9 @@ static const struct pci_device_id my_ids[] = {
     { }
 };
 
-static int my_probe(struct pci_dev *pdev,
-                    const struct pci_device_id *id)
+/* Allocate a DMA buffer */
+static dma_addr_t mjp_dma_alloc(struct pci_dev *pdev)
 {
-    struct mjp_accel *mjp;
-    uint32_t dma_addr_lo = 0;
-    //uint32_t dma_addr_hi = 0;
-    int res = 0;
-
-    res = pcim_enable_device(pdev);
-    if (res) {
-        return res;
-    }
-
-    res = pcim_iomap_regions(pdev, BIT(0), "mjp-accel");
-    if (res) {
-        return res;
-    }
-
-    mjp = devm_kzalloc(&pdev->dev, sizeof(*mjp), GFP_KERNEL);
-    if (!mjp) {
-        return -ENOMEM;
-    }
-
-    mjp->regs = pcim_iomap_table(pdev)[0];
-
-    mjp->pdev = pdev;
-    pci_set_drvdata(pdev, mjp);
-
-    dma_addr_lo = ioread32(mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
-
-    pr_info("dma_addr_lo = %d\n", dma_addr_lo);
-
-    iowrite32(7, mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
-    iowrite32(3, mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
-
-    /* set dma mask */
-
-    res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
-    if (res) {
-        res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-    }
-    if (res) {
-        return res;
-    }
-    
-    /* allocate a dma buffer */
-
     void *cpu_addr;
     dma_addr_t dma_addr;
 
@@ -134,19 +90,64 @@ static int my_probe(struct pci_dev *pdev,
         return -ENOMEM;
     }
 
-    /* program the device */
+    return dma_addr;
+}
 
+static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
+{
+    int res = 0;
+    struct mjp_accel *mjp;
+
+    res = pcim_enable_device(pdev);
+    if (res) {
+        return NULL;
+    }
+
+    res = pcim_iomap_regions(pdev, BIT(0), "mjp-accel");
+    if (res) {
+        return NULL;
+    }
+
+    mjp = devm_kzalloc(&pdev->dev, sizeof(*mjp), GFP_KERNEL);
+    if (!mjp) {
+        return NULL;
+    }
+
+    mjp->regs = pcim_iomap_table(pdev)[0];
+
+    mjp->pdev = pdev;
+    pci_set_drvdata(pdev, mjp);
+
+    return mjp;
+}
+
+static int mjp_dma_setup(struct pci_dev *pdev)
+{
+    int res = 0;
+
+    res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+
+    if (res) {
+        res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+    }
+
+    return res;
+}
+
+static int mjp_device_program_regs(struct mjp_accel *mjp, dma_addr_t dma_addr)
+{
     iowrite32(lower_32_bits(dma_addr),
               mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
     iowrite32(upper_32_bits(dma_addr),
               mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
     iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_ADDR_SIZE);
 
-    /* clean up buffer */
+    return 0;
+}
 
-
-
-    /* set up cdev */
+static int mjp_cdev_setup(struct mjp_accel *mjp, struct pci_dev *pdev)
+{
+    int res = 0;
 
     res = alloc_chrdev_region(&mjp->devt, 0, 1, "mjp_accel");
     if (res) {
@@ -167,6 +168,23 @@ static int my_probe(struct pci_dev *pdev,
                   mjp->devt,
                   NULL,
                   "mjp_accel");
+
+    return res;
+}
+
+static int my_probe(struct pci_dev *pdev,
+                    const struct pci_device_id *id)
+{
+    struct mjp_accel *mjp;
+    int res = 0;
+
+    mjp = mjp_pci_setup(pdev); 
+    res = mjp_dma_setup(pdev);
+    
+    dma_addr_t dma_addr = mjp_dma_alloc(pdev);
+    res = mjp_device_program_regs(mjp, dma_addr);
+
+    res = mjp_cdev_setup(mjp, pdev);
 
     return 0;
 }
