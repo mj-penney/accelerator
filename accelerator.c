@@ -8,6 +8,8 @@
 #include <linux/pci.h>
 #include <linux/ioctl.h>
 
+#include "accelerator.h"
+
 #define MJP_ACCEL_VENDOR_ID 0x1234
 #define MJP_ACCEL_DEVICE_ID 0x11e8
 
@@ -23,9 +25,6 @@ struct mjp_accel {
 };
 
 /* FILE OPERATIONS */
-
-#define MJP_ACCEL_IOC_MAGIC  'm'
-#define MJP_ACCEL_IOC_PING   _IO(MJP_ACCEL_IOC_MAGIC, 0)
 
 static int accel_open(struct inode *inode, struct file *file)
 {
@@ -50,8 +49,13 @@ static long accel_ioctl(struct file *file,
                         unsigned long arg)
 {
     switch (cmd) {
+
     case MJP_ACCEL_IOC_PING:
         pr_info("mjp_accel: ioctl called\n");
+        return 0;
+
+    case MJP_ACCEL_IOC_COPY:
+        pr_info("mjp_accel: ioctl copy data\n");
         return 0;
 
     default:

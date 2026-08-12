@@ -2,9 +2,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <stdint.h>
 
-#define MJP_ACCEL_IOC_MAGIC  'm'
-#define MJP_ACCEL_IOC_PING   _IO(MJP_ACCEL_IOC_MAGIC, 0)
+#include "accelerator.h"
+
+static uint64_t buffer[4];
 
 int main(void)
 {
@@ -16,6 +18,21 @@ int main(void)
 
     if (ioctl(fd, MJP_ACCEL_IOC_PING) < 0)
         perror("ioctl");
+
+    // fill the buffer
+    buffer[0] = 5;
+    buffer[1] = 6;
+    buffer[2] = 7;
+    buffer[3] = 8;
+
+    struct mjp_accel_user_data req_data = {
+        .data = &buffer[0],
+        .size = 4,
+    };
+
+    if (ioctl(fd, MJP_ACCEL_IOC_COPY, &req_data)) {
+        perror("copy data");
+    }
 
     close(fd);
     return 0;
