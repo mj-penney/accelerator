@@ -24,6 +24,25 @@ struct mjp_accel {
     dev_t devt;
 };
 
+/* Data Operations */
+
+static int copy_data_from_uspace(unsigned long arg)
+{
+    struct mjp_accel_user_data req;
+    
+    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
+        return -EFAULT;
+    }
+
+    if (!access_ok((void __user *)req.data, req.size)) {
+        return -EFAULT;
+    }
+
+    pr_info("Data size: %llu\n", req.size);
+
+    return 0;
+}
+
 /* FILE OPERATIONS */
 
 static int accel_open(struct inode *inode, struct file *file)
@@ -56,7 +75,7 @@ static long accel_ioctl(struct file *file,
 
     case MJP_ACCEL_IOC_COPY:
         pr_info("mjp_accel: ioctl copy data\n");
-        return 0;
+        return copy_data_from_uspace(arg);
 
     default:
         return -ENOTTY;
