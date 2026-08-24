@@ -24,32 +24,52 @@ struct mjp_accel {
     dev_t devt;
 };
 
+/* DMA Buffers */
+
+struct mjp_dma_buf {
+    void *cpu_addr;
+    dma_addr_t dma_addr;
+    uint64_t size;
+};
+
+// main buffer (put queues here in the future)
+static struct mjp_dma_buf mjp_main_buf = {
+    .cpu_addr = 0x0,
+    .dma_addr = 0,
+    .size = 0,
+};
+
 /* Data Operations */
 
-static int copy_data_from_uspace(unsigned long arg)
+static int copy_data_from_uspace(unsigned long arg,
+                                 struct mjp_dma_buf *dma_buf)
 {
     struct mjp_accel_user_data req;
-    uint64_t buf[8];
     
     if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
         return -EFAULT;
+    }
+
+    if (req.size > dma_buf->size) {
+        pr_info("Data too big for buffer\n");
+        return -ENOMEM;
     }
 
     if (!access_ok((void __user *)req.data, req.size)) {
         return -EFAULT;
     }
 
-    if (copy_from_user(&buf[0],
+    if (copy_from_user(dma_buf->cpu_addr,
                        (void __user *)req.data,
-                       req.size * sizeof(uint64_t))) {
+                       req.size)) {
         return -EFAULT;
     }
 
     pr_info("Data size: %llu\n", req.size);
-    pr_info("Element 0: %llu\n", buf[0]);
-    pr_info("Element 1: %llu\n", buf[1]);
-    pr_info("Element 2: %llu\n", buf[2]);
-    pr_info("Element 3: %llu\n", buf[3]);
+    pr_info("Element 0: %llu\n", *((uint64_t *)dma_buf->cpu_addr));
+    pr_info("Element 1: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 1));
+    pr_info("Element 2: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 2));
+    pr_info("Element 3: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 3));
 
     return 0;
 }
@@ -86,7 +106,7 @@ static long accel_ioctl(struct file *file,
 
     case MJP_ACCEL_IOC_COPY:
         pr_info("mjp_accel: ioctl copy data\n");
-        return copy_data_from_uspace(arg);
+        return copy_data_from_uspace(arg, &mjp_main_buf);
 
     default:
         return -ENOTTY;
@@ -110,21 +130,20 @@ static const struct pci_device_id my_ids[] = {
 };
 
 /* Allocate a DMA buffer */
-static dma_addr_t mjp_dma_alloc(struct pci_dev *pdev)
+static int mjp_dma_alloc(struct pci_dev *pdev, struct mjp_dma_buf *dma_buf)
 {
-    void *cpu_addr;
-    dma_addr_t dma_addr;
+    dma_buf->cpu_addr = dma_alloc_coherent(&pdev->dev,
+                                           PAGE_SIZE,
+                                           &dma_buf->dma_addr,
+                                           GFP_KERNEL);
 
-    cpu_addr = dma_alloc_coherent(&pdev->dev,
-                                  PAGE_SIZE,
-                                  &dma_addr,
-                                  GFP_KERNEL);
-
-    if (!cpu_addr) {
+    if (!dma_buf->cpu_addr) {
         return -ENOMEM;
     }
 
-    return dma_addr;
+    dma_buf->size = PAGE_SIZE;
+
+    return 0;
 }
 
 static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
@@ -168,11 +187,12 @@ static int mjp_dma_setup(struct pci_dev *pdev)
     return res;
 }
 
-static int mjp_device_program_regs(struct mjp_accel *mjp, dma_addr_t dma_addr)
+static int mjp_device_program_regs(struct mjp_accel *mjp,
+                                   struct mjp_dma_buf *dma_buf)
 {
-    iowrite32(lower_32_bits(dma_addr),
+    iowrite32(lower_32_bits(dma_buf->dma_addr),
               mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
-    iowrite32(upper_32_bits(dma_addr),
+    iowrite32(upper_32_bits(dma_buf->dma_addr),
               mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
     iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_ADDR_SIZE);
 
@@ -210,13 +230,14 @@ static int my_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
     struct mjp_accel *mjp;
+
     int res = 0;
 
     mjp = mjp_pci_setup(pdev); 
     res = mjp_dma_setup(pdev);
     
-    dma_addr_t dma_addr = mjp_dma_alloc(pdev);
-    res = mjp_device_program_regs(mjp, dma_addr);
+    res = mjp_dma_alloc(pdev, &mjp_main_buf);
+    res = mjp_device_program_regs(mjp, &mjp_main_buf);
 
     res = mjp_cdev_setup(mjp, pdev);
 

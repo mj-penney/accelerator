@@ -27,7 +27,7 @@ int main(void)
 
     struct mjp_accel_user_data req_data = {
         .data = &buffer[0],
-        .size = 4,
+        .size = 4 * sizeof(uint64_t),
     };
 
     if (ioctl(fd, MJP_ACCEL_IOC_COPY, &req_data)) {
