@@ -29,6 +29,7 @@ struct mjp_accel {
 static int copy_data_from_uspace(unsigned long arg)
 {
     struct mjp_accel_user_data req;
+    uint64_t buf[8];
     
     if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
         return -EFAULT;
@@ -38,7 +39,17 @@ static int copy_data_from_uspace(unsigned long arg)
         return -EFAULT;
     }
 
+    if (copy_from_user(&buf[0],
+                       (void __user *)req.data,
+                       req.size * sizeof(uint64_t))) {
+        return -EFAULT;
+    }
+
     pr_info("Data size: %llu\n", req.size);
+    pr_info("Element 0: %llu\n", buf[0]);
+    pr_info("Element 1: %llu\n", buf[1]);
+    pr_info("Element 2: %llu\n", buf[2]);
+    pr_info("Element 3: %llu\n", buf[3]);
 
     return 0;
 }
