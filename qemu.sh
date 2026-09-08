@@ -4,7 +4,7 @@
     -kernel ../linux/arch/x86/boot/bzImage \
     -initrd initrd.cpio.gz \
     -device mjp-accel \
-    -append "console=ttyS0" \
-    -nographic
-#    -monitor stdio
+    -monitor stdio
+#    -append "console=ttyS0" \
+#    -nographic \
 
