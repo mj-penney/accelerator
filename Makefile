@@ -8,3 +8,4 @@ all:
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -rf initrd/ initrd.cpio.gz uspace
