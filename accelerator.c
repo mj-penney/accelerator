@@ -233,7 +233,7 @@ static int my_probe(struct pci_dev *pdev,
     int res = 0;
 
     if (!(mjp = mjp_pci_setup(pdev))) {
-        return res;
+        return -ENOMEM;
     }
 
     if ((res = mjp_dma_setup(pdev)) != 0) {
