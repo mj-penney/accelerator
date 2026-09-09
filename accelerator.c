@@ -259,6 +259,10 @@ static void my_remove(struct pci_dev *pdev)
 {
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
+    dma_free_coherent(&pdev->dev,
+                      mjp_main_buf.size,
+                      mjp_main_buf.cpu_addr,
+                      mjp_main_buf.dma_addr);
     device_destroy(mjp_accel_class, mjp->devt);
     cdev_del(&mjp->cdev);
     unregister_chrdev_region(mjp->devt, 1);
