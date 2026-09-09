@@ -229,17 +229,28 @@ static int mjp_cdev_setup(struct mjp_accel *mjp, struct pci_dev *pdev)
 static int my_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
-    struct mjp_accel *mjp;
-
+    struct mjp_accel *mjp = NULL;
     int res = 0;
 
-    mjp = mjp_pci_setup(pdev); 
-    res = mjp_dma_setup(pdev);
-    
-    res = mjp_dma_alloc(pdev, &mjp_main_buf);
-    res = mjp_device_program_regs(mjp, &mjp_main_buf);
+    if (!(mjp = mjp_pci_setup(pdev))) {
+        return res;
+    }
 
-    res = mjp_cdev_setup(mjp, pdev);
+    if ((res = mjp_dma_setup(pdev)) != 0) {
+        return res;
+    }
+    
+    if ((res = mjp_dma_alloc(pdev, &mjp_main_buf)) != 0) {
+        return res;
+    }
+
+    if ((res = mjp_device_program_regs(mjp, &mjp_main_buf)) != 0) {
+        return res;
+    }
+
+    if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
+        return res;
+    }
 
     return 0;
 }
