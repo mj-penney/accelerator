@@ -201,28 +201,35 @@ static int mjp_device_program_regs(struct mjp_accel *mjp,
 
 static int mjp_cdev_setup(struct mjp_accel *mjp, struct pci_dev *pdev)
 {
-    int res = 0;
+    int res;
 
     res = alloc_chrdev_region(&mjp->devt, 0, 1, "mjp_accel");
-    if (res) {
+    if (res)
         return res;
-    }
 
     cdev_init(&mjp->cdev, &accel_fops);
     mjp->cdev.owner = THIS_MODULE;
 
     res = cdev_add(&mjp->cdev, mjp->devt, 1);
     if (res) {
-        unregister_chrdev_region(mjp->devt, 1);
-        return res;
+        goto err_chrdev;
     }
 
-    device_create(mjp_accel_class,
-                  &pdev->dev,
-                  mjp->devt,
-                  NULL,
-                  "mjp_accel");
+    if (IS_ERR(device_create(mjp_accel_class,
+                             &pdev->dev,
+                             mjp->devt,
+                             NULL,
+                             "mjp_accel"))) {
+        res = -ENODEV;
+        goto err_cdev;
+    }
 
+    return 0;
+
+err_cdev:
+    cdev_del(&mjp->cdev);
+err_chrdev:
+    unregister_chrdev_region(mjp->devt, 1);
     return res;
 }
 
