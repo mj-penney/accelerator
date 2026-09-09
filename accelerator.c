@@ -245,14 +245,26 @@ static int my_probe(struct pci_dev *pdev,
     }
 
     if ((res = mjp_device_program_regs(mjp, &mjp_main_buf)) != 0) {
-        return res;
+        goto err_dma;
     }
 
     if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
-        return res;
+        goto err_dma;
     }
 
     return 0;
+
+err_dma:
+    dma_free_coherent(&pdev->dev,
+                      mjp_main_buf.size,
+                      mjp_main_buf.cpu_addr,
+                      mjp_main_buf.dma_addr);
+
+    mjp_main_buf.cpu_addr = NULL;
+    mjp_main_buf.dma_addr = 0;
+    mjp_main_buf.size = 0;
+
+    return res;
 }
 
 static void my_remove(struct pci_dev *pdev)
