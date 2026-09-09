@@ -124,7 +124,7 @@ static const struct file_operations accel_fops = {
 
 static struct class *mjp_accel_class;
 
-static const struct pci_device_id my_ids[] = {
+static const struct pci_device_id mjp_ids[] = {
     { PCI_DEVICE(MJP_ACCEL_VENDOR_ID, MJP_ACCEL_DEVICE_ID) },
     { }
 };
@@ -233,7 +233,7 @@ err_chrdev:
     return res;
 }
 
-static int my_probe(struct pci_dev *pdev,
+static int mjp_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
     struct mjp_accel *mjp = NULL;
@@ -274,7 +274,7 @@ err_dma:
     return res;
 }
 
-static void my_remove(struct pci_dev *pdev)
+static void mjp_remove(struct pci_dev *pdev)
 {
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
@@ -289,16 +289,16 @@ static void my_remove(struct pci_dev *pdev)
     pr_info("Removing accelerator\n");
 }
 
-static struct pci_driver my_pci_driver = {
-    .name     = "my_accel",
-    .id_table = my_ids,
-    .probe    = my_probe,
-    .remove   = my_remove,
+static struct pci_driver mjp_pci_driver = {
+    .name     = "mjp_accel",
+    .id_table = mjp_ids,
+    .probe    = mjp_probe,
+    .remove   = mjp_remove,
 };
 
-MODULE_DEVICE_TABLE(pci, my_ids);
+MODULE_DEVICE_TABLE(pci, mjp_ids);
 
-static int __init my_init(void)
+static int __init mjp_init(void)
 {
     int res;
 
@@ -309,7 +309,7 @@ static int __init my_init(void)
         return PTR_ERR(mjp_accel_class);
     }
 
-    res = pci_register_driver(&my_pci_driver);
+    res = pci_register_driver(&mjp_pci_driver);
     if (res) {
         class_destroy(mjp_accel_class);
         return res;
@@ -318,14 +318,14 @@ static int __init my_init(void)
     return 0;
 }
 
-static void __exit my_exit(void)
+static void __exit mjp_exit(void)
 {
-    pci_unregister_driver(&my_pci_driver);
+    pci_unregister_driver(&mjp_pci_driver);
     class_destroy(mjp_accel_class);
     pr_info("goodbye\n");
 }
 
-module_init(my_init);
-module_exit(my_exit);
+module_init(mjp_init);
+module_exit(mjp_exit);
 
 MODULE_LICENSE("GPL");
