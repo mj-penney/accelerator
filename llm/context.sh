@@ -6,6 +6,10 @@ echo "> I am working on a hardware accelerator project. Here are my goals:"
 echo ""
 cat docs/goals.md
 echo ""
+echo "> Here is my plan:"
+echo ""
+cat docs/plan.md
+echo ""
 echo "> Here is the project structure (note that the QEMU device is in the"
 echo "> QEMU source tree, not here):"
 tree --gitignore --noreport .
