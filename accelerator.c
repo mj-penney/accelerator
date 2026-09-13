@@ -10,12 +10,12 @@
 
 #include "accelerator.h"
 
-#define MJP_ACCEL_VENDOR_ID 0x1234
-#define MJP_ACCEL_DEVICE_ID 0x11e8
+#define MJP_VENDOR_ID 0x1234
+#define MJP_DEVICE_ID 0x11e8
 
-#define MJP_ACCEL_DMA_ADDR_LO 0x00
-#define MJP_ACCEL_DMA_ADDR_HI 0x04
-#define MJP_ACCEL_DMA_ADDR_SIZE 0x08
+#define MJP_DMA_ADDR_LO 0x00
+#define MJP_DMA_ADDR_HI 0x04
+#define MJP_DMA_ADDR_SIZE 0x08
 
 struct mjp_accel {
     struct pci_dev *pdev;
@@ -100,11 +100,11 @@ static long accel_ioctl(struct file *file,
 {
     switch (cmd) {
 
-    case MJP_ACCEL_IOC_PING:
+    case MJP_IOC_PING:
         pr_info("mjp_accel: ioctl called\n");
         return 0;
 
-    case MJP_ACCEL_IOC_COPY:
+    case MJP_IOC_COPY:
         pr_info("mjp_accel: ioctl copy data\n");
         return copy_data_from_uspace(arg, &mjp_main_buf);
 
@@ -125,7 +125,7 @@ static const struct file_operations accel_fops = {
 static struct class *mjp_accel_class;
 
 static const struct pci_device_id mjp_ids[] = {
-    { PCI_DEVICE(MJP_ACCEL_VENDOR_ID, MJP_ACCEL_DEVICE_ID) },
+    { PCI_DEVICE(MJP_VENDOR_ID, MJP_DEVICE_ID) },
     { }
 };
 
@@ -191,10 +191,10 @@ static int mjp_device_program_regs(struct mjp_accel *mjp,
                                    struct mjp_dma_buf *dma_buf)
 {
     iowrite32(lower_32_bits(dma_buf->dma_addr),
-              mjp->regs + MJP_ACCEL_DMA_ADDR_LO);
+              mjp->regs + MJP_DMA_ADDR_LO);
     iowrite32(upper_32_bits(dma_buf->dma_addr),
-              mjp->regs + MJP_ACCEL_DMA_ADDR_HI);
-    iowrite32(PAGE_SIZE, mjp->regs + MJP_ACCEL_DMA_ADDR_SIZE);
+              mjp->regs + MJP_DMA_ADDR_HI);
+    iowrite32(PAGE_SIZE, mjp->regs + MJP_DMA_ADDR_SIZE);
 
     return 0;
 }

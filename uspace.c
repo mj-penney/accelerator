@@ -16,7 +16,7 @@ int main(void)
         return 1;
     }
 
-    if (ioctl(fd, MJP_ACCEL_IOC_PING) < 0)
+    if (ioctl(fd, MJP_IOC_PING) < 0)
         perror("ioctl");
 
     // fill the buffer
@@ -30,7 +30,7 @@ int main(void)
         .size = 4 * sizeof(uint64_t),
     };
 
-    if (ioctl(fd, MJP_ACCEL_IOC_COPY, &req_data)) {
+    if (ioctl(fd, MJP_IOC_COPY, &req_data)) {
         perror("copy data");
     }
 
