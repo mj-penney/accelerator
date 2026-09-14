@@ -9,13 +9,7 @@
 #include <linux/ioctl.h>
 
 #include "accelerator.h"
-
-#define MJP_VENDOR_ID 0x1234
-#define MJP_DEVICE_ID 0x11e8
-
-#define MJP_DMA_ADDR_LO 0x00
-#define MJP_DMA_ADDR_HI 0x04
-#define MJP_DMA_ADDR_SIZE 0x08
+#include "include/hw.h"
 
 struct mjp_accel {
     struct pci_dev *pdev;
