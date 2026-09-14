@@ -188,8 +188,6 @@ static int mjp_device_program_regs(struct mjp_accel *mjp,
               mjp->regs + MJP_DMA_ADDR_LO);
     iowrite32(upper_32_bits(dma_buf->dma_addr),
               mjp->regs + MJP_DMA_ADDR_HI);
-    iowrite32(PAGE_SIZE, mjp->regs + MJP_DMA_ADDR_SIZE);
-
     return 0;
 }
 
