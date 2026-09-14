@@ -11,26 +11,19 @@
 #include "accelerator.h"
 #include "include/hw.h"
 
-struct mjp_accel {
-    struct pci_dev *pdev;
-    void __iomem *regs;
-    struct cdev cdev;
-    dev_t devt;
-};
-
-/* DMA Buffers */
-
 struct mjp_dma_buf {
     void *cpu_addr;
     dma_addr_t dma_addr;
     uint64_t size;
 };
 
-// main buffer (put queues here in the future)
-static struct mjp_dma_buf mjp_main_buf = {
-    .cpu_addr = 0x0,
-    .dma_addr = 0,
-    .size = 0,
+struct mjp_accel {
+    struct pci_dev *pdev;
+    void __iomem *regs;
+    struct cdev cdev;
+    dev_t devt;
+
+    struct mjp_dma_buf test_buf;
 };
 
 /* Data Operations */
@@ -92,18 +85,17 @@ static long accel_ioctl(struct file *file,
                         unsigned int cmd,
                         unsigned long arg)
 {
+    struct mjp_accel *mjp = file->private_data;
+
     switch (cmd) {
-
-    case MJP_IOC_PING:
-        pr_info("mjp_accel: ioctl called\n");
-        return 0;
-
-    case MJP_IOC_COPY:
-        pr_info("mjp_accel: ioctl copy data\n");
-        return copy_data_from_uspace(arg, &mjp_main_buf);
-
-    default:
-        return -ENOTTY;
+        case MJP_IOC_PING:
+            pr_info("mjp_accel: ioctl called\n");
+            return 0;
+        case MJP_IOC_COPY:
+            pr_info("mjp_accel: ioctl copy data\n");
+            return copy_data_from_uspace(arg, &mjp->test_buf);
+        default:
+            return -ENOTTY;
     }
 }
 
@@ -239,11 +231,11 @@ static int mjp_probe(struct pci_dev *pdev,
         return res;
     }
     
-    if ((res = mjp_dma_alloc(pdev, &mjp_main_buf)) != 0) {
+    if ((res = mjp_dma_alloc(pdev, &mjp->test_buf)) != 0) {
         return res;
     }
 
-    if ((res = mjp_device_program_regs(mjp, &mjp_main_buf)) != 0) {
+    if ((res = mjp_device_program_regs(mjp, &mjp->test_buf)) != 0) {
         goto err_dma;
     }
 
@@ -255,13 +247,13 @@ static int mjp_probe(struct pci_dev *pdev,
 
 err_dma:
     dma_free_coherent(&pdev->dev,
-                      mjp_main_buf.size,
-                      mjp_main_buf.cpu_addr,
-                      mjp_main_buf.dma_addr);
+                      mjp->test_buf.size,
+                      mjp->test_buf.cpu_addr,
+                      mjp->test_buf.dma_addr);
 
-    mjp_main_buf.cpu_addr = NULL;
-    mjp_main_buf.dma_addr = 0;
-    mjp_main_buf.size = 0;
+    mjp->test_buf.cpu_addr = NULL;
+    mjp->test_buf.dma_addr = 0;
+    mjp->test_buf.size = 0;
 
     return res;
 }
@@ -271,9 +263,9 @@ static void mjp_remove(struct pci_dev *pdev)
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
     dma_free_coherent(&pdev->dev,
-                      mjp_main_buf.size,
-                      mjp_main_buf.cpu_addr,
-                      mjp_main_buf.dma_addr);
+                      mjp->test_buf.size,
+                      mjp->test_buf.cpu_addr,
+                      mjp->test_buf.dma_addr);
     device_destroy(mjp_accel_class, mjp->devt);
     cdev_del(&mjp->cdev);
     unregister_chrdev_region(mjp->devt, 1);
