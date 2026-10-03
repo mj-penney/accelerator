@@ -50,8 +50,9 @@ Also implement preliminary `SUBMIT` ioctl.
 
 ### 3.1. Migrate existing device model (see hw.h) to the model described in docs/iomem_layout.md
 
-I'd replace your current test_buf test with a ring smoke test.
+Keep the test_buf for now, as it is a useful debug path (is this possible)?
 
+Add a ring smoke test.
 First milestone:
 
 ```
