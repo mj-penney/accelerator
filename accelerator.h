@@ -1,3 +1,6 @@
+#ifndef MJP_ACCEL_H
+#define MJP_ACCEL_H
+
 struct mjp_accel_user_data {
     uint64_t *data;
     uint64_t size;
@@ -7,3 +10,5 @@ struct mjp_accel_user_data {
 #define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
 #define MJP_IOC_COPY  _IOW(MJP_IOC_MAGIC, 1, \
                                  struct mjp_accel_user_data)
+
+#endif

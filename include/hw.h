@@ -1,3 +1,6 @@
+#ifndef MJP_HW_H
+#define MJP_HW_H
+
 /* vendor & device ids */
 
 #define MJP_VENDOR_ID 0x1234
@@ -26,3 +29,5 @@
 
 #define MJP_DMA_ADDR_LO 0x00
 #define MJP_DMA_ADDR_HI 0x04
+
+#endif
