@@ -3,8 +3,9 @@
 ## 1. Freeze the basic architecture and ABI
 
 Before writing much more code, document the intended contract in docs/:
+How much of this do I need to solidify before moving on with development?
 
-- PCI BAR/register map
+- PCI BAR/register map (done, need to define who can read/write/etc. regs)
 - MSI-X vector layout
 - Submission descriptor format
 - Completion descriptor format
@@ -15,7 +16,7 @@ Before writing much more code, document the intended contract in docs/:
 - Error/status codes
 - Buffer/job ownership state machine
 
-## 2. Replace the global DMA buffer with per-device state
+## 2. Replace the global DMA buffer with per-device state (done)
 
 Move device-owned resources into `struct mjp_accel`.
 
