@@ -48,6 +48,68 @@ Then implement the ring protocol.
 
 Also implement preliminary `SUBMIT` ioctl.
 
+### 3.1. Migrate existing device model (see hw.h) to the model described in docs/iomem_layout.md
+
+I'd replace your current test_buf test with a ring smoke test.
+
+First milestone:
+
+```
+driver probe
+    ↓
+allocate submit + completion rings
+    ↓
+write ring addresses/sizes to QEMU
+    ↓
+RESET
+    ↓
+ENABLE
+    ↓
+read VERSION/STATUS
+    ↓
+STATUS == READY
+```
+
+Have both sides log this.
+
+Driver:
+
+mjp_accel: submit ring dma=...
+mjp_accel: completion ring dma=...
+mjp_accel: device version=...
+mjp_accel: device ready
+
+QEMU:
+
+mjp-accel: reset
+mjp-accel: submit ring = ...
+mjp-accel: completion ring = ...
+mjp-accel: enabled
+
+Then add a ring-loopback debug operation before implementing real jobs:
+
+```
+    Driver writes a known fake submission descriptor into slot 0.
+
+    Driver updates SUB_PROD.
+
+    Rings the doorbell.
+
+    QEMU detects it.
+
+    QEMU logs the descriptor.
+
+    QEMU writes a fake completion.
+
+    QEMU increments CPL_PROD.
+
+    Driver detects/logs the completion.
+```
+
+That gives you a complete driver ↔ PCI MMIO ↔ DMA-memory ↔ QEMU debugging path without needing MSI-X, ioctls, or actual accelerator operations.
+
+I'd make that your next concrete milestone: probe → reset → ready → submit one fake descriptor → fake completion.
+
 ## 4. Establish DMA semantics properly
 
 E.g.:
