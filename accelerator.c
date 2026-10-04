@@ -23,6 +23,10 @@ struct mjp_accel {
     struct cdev cdev;
     dev_t devt;
 
+    /* Temporary debug buffer.
+     * Remove it once the basic ring loopback/debug path (plan stage 3.1) is
+     * established.
+     */
     struct mjp_dma_buf test_buf;
 };
 
