@@ -19,7 +19,7 @@ struct mjp_dma_buf {
 
 struct mjp_ring {
     struct mjp_dma_buf buf;
-    uint32_t size;
+    uint32_t size; // is this necessary? we already have MJP_SUB_RING_SIZE etc.
     uint32_t prod;
     uint32_t cons;
 };
@@ -233,6 +233,49 @@ err_chrdev:
     return res;
 }
 
+static int mjp_queues_setup(struct mjp_accel *mjp)
+{
+    int res;
+    size_t sub_ring_bytes = MJP_SUB_RING_SIZE * sizeof(struct mjp_sub_desc);
+    size_t cpl_ring_bytes = MJP_CPL_RING_SIZE * sizeof(struct mjp_cpl_desc);
+
+    if ((res = mjp_dma_alloc(mjp->pdev,
+                             &mjp->sub_ring.buf,
+                             sub_ring_bytes)) != 0) {
+        return res;
+    }
+
+    if ((res = mjp_dma_alloc(mjp->pdev,
+                             &mjp->cpl_ring.buf,
+                             cpl_ring_bytes)) != 0) {
+        goto err_allocating_cpl_ring;
+    }
+
+    mjp->sub_ring.prod = 0;
+    mjp->sub_ring.cons = 0;
+    mjp->cpl_ring.prod = 0;
+    mjp->cpl_ring.cons = 0;
+
+err_allocating_cpl_ring:
+    dma_free_coherent(&mjp->pdev->dev,
+                      mjp->sub_ring.buf.size,
+                      mjp->sub_ring.buf.cpu_addr,
+                      mjp->sub_ring.buf.dma_addr);
+    return res;
+}
+
+static void mjp_queues_cleanup(struct mjp_accel *mjp)
+{
+    dma_free_coherent(&mjp->pdev->dev,
+                      mjp->sub_ring.buf.size,
+                      mjp->sub_ring.buf.cpu_addr,
+                      mjp->sub_ring.buf.dma_addr);
+    dma_free_coherent(&mjp->pdev->dev,
+                      mjp->cpl_ring.buf.size,
+                      mjp->cpl_ring.buf.cpu_addr,
+                      mjp->cpl_ring.buf.dma_addr);
+}
+
 static int mjp_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
@@ -248,20 +291,28 @@ static int mjp_probe(struct pci_dev *pdev,
     }
     
     if ((res = mjp_dma_alloc(pdev, &mjp->test_buf, PAGE_SIZE)) != 0) {
-        return res;
+        goto err_allocating_test_buf;
+    }
+
+    if ((res = mjp_queues_setup(mjp)) != 0) {
+        goto err_setting_up_queues;
     }
 
     if ((res = mjp_device_program_regs(mjp, &mjp->test_buf)) != 0) {
-        goto err_dma;
+        goto err_programming_regs;
     }
 
     if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
-        goto err_dma;
+        goto err_setting_up_cdev;
     }
 
     return 0;
 
-err_dma:
+err_setting_up_cdev:
+err_programming_regs:
+    mjp_queues_cleanup(mjp);
+
+err_setting_up_queues:
     dma_free_coherent(&pdev->dev,
                       mjp->test_buf.size,
                       mjp->test_buf.cpu_addr,
@@ -271,6 +322,7 @@ err_dma:
     mjp->test_buf.dma_addr = 0;
     mjp->test_buf.size = 0;
 
+err_allocating_test_buf:
     return res;
 }
 
@@ -282,6 +334,7 @@ static void mjp_remove(struct pci_dev *pdev)
                       mjp->test_buf.size,
                       mjp->test_buf.cpu_addr,
                       mjp->test_buf.dma_addr);
+    mjp_queues_cleanup(mjp);
     device_destroy(mjp_accel_class, mjp->devt);
     cdev_del(&mjp->cdev);
     unregister_chrdev_region(mjp->devt, 1);
