@@ -2,13 +2,13 @@
 #define MJP_HW_H
 
 ///////////////////////////////////////////////////////////////////////////////
-/* vendor & device ids */
+// VENDOR & DEVICE IDS
 
 #define MJP_VENDOR_ID 0x1234
 #define MJP_DEVICE_ID 0x11e8
 
 ///////////////////////////////////////////////////////////////////////////////
-/* memory region offsets */
+// MEMORY REGION OFFSETS
 
 #define MJP_ACCEL_BAR0_SIZE    0x10000
 
@@ -62,9 +62,41 @@
 #define MJP_MSIX_PBA_OFFSET    0x02000
 #define MJP_MSIX_PBA_SIZE      0x01000
 
-/* OTHER */
+/* other */
 
 #define MJP_MSIX_VEC_NUM 1
-#define MJP_MSIX_CAP_POS 0 /* don't manually set msix cap_pos */
+#define MJP_MSIX_CAP_POS 0 /* 0: don't manually set msix cap_pos */
+
+///////////////////////////////////////////////////////////////////////////////
+// RINGS & DESCRIPTORS
+
+// size refers to the number of descriptors, not bytes
+#define MJP_SUB_RING_SIZE 16
+#define MJP_CPL_RING_SIZE 16
+
+/* submission/completion descriptors */
+
+struct mjp_sub_desc {
+    uint64_t job_id;
+    uint32_t opcode;
+    uint32_t flags;
+
+    uint64_t input_addr;
+    uint64_t output_addr;
+
+    uint32_t input_len;
+    uint32_t output_len;
+
+    uint32_t op_param0;
+    uint32_t op_param1;
+};
+
+struct mjp_cpl_desc {
+    uint64_t job_id;
+    uint32_t status;
+    uint32_t flags;
+    uint32_t output_len;
+    uint32_t reserved;
+};
 
 #endif

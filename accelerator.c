@@ -17,11 +17,21 @@ struct mjp_dma_buf {
     uint64_t size;
 };
 
+struct mjp_ring {
+    struct mjp_dma_buf buf;
+    uint32_t size;
+    uint32_t prod;
+    uint32_t cons;
+};
+
 struct mjp_accel {
     struct pci_dev *pdev;
     void __iomem *regs;
     struct cdev cdev;
     dev_t devt;
+
+    struct mjp_ring sub_ring;
+    struct mjp_ring cpl_ring;
 
     /* Temporary debug buffer.
      * Remove it once the basic ring loopback/debug path (plan stage 3.1) is
