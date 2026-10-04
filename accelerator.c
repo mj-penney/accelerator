@@ -19,9 +19,9 @@ struct mjp_dma_buf {
 
 struct mjp_ring {
     struct mjp_dma_buf buf;
-    uint32_t size; // is this necessary? we already have MJP_SUB_RING_SIZE etc.
-    uint32_t prod;
-    uint32_t cons;
+    uint32_t size; // bookkeeping: number of descriptors in the ring
+    uint32_t prod; // bookkeeping: producer index
+    uint32_t cons; // bookkeeping: consumer index
 };
 
 struct mjp_accel {
@@ -233,6 +233,36 @@ err_chrdev:
     return res;
 }
 
+static int mjp_queues_program_regs(struct mjp_accel *mjp)
+{
+    struct mjp_ring *sub_ring = &mjp->sub_ring;
+    struct mjp_ring *cpl_ring = &mjp->cpl_ring;
+
+    iowrite32(lower_32_bits(sub_ring->buf.dma_addr),
+              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_BASE_LO));
+    iowrite32(upper_32_bits(sub_ring->buf.dma_addr),
+              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_BASE_HI));
+    iowrite32(sub_ring->size,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_SIZE));
+    iowrite32(sub_ring->prod,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+    iowrite32(sub_ring->cons,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
+
+    iowrite32(lower_32_bits(cpl_ring->buf.dma_addr),
+              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_BASE_LO));
+    iowrite32(upper_32_bits(cpl_ring->buf.dma_addr),
+              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_BASE_HI));
+    iowrite32(cpl_ring->size,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_SIZE));
+    iowrite32(cpl_ring->prod,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
+    iowrite32(cpl_ring->cons,
+              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    return 0;
+}
+
 static int mjp_queues_setup(struct mjp_accel *mjp)
 {
     int res;
@@ -253,8 +283,23 @@ static int mjp_queues_setup(struct mjp_accel *mjp)
 
     mjp->sub_ring.prod = 0;
     mjp->sub_ring.cons = 0;
+    mjp->sub_ring.size = MJP_SUB_RING_SIZE;
+
     mjp->cpl_ring.prod = 0;
     mjp->cpl_ring.cons = 0;
+    mjp->cpl_ring.size = MJP_CPL_RING_SIZE;
+
+    if ((res = mjp_queues_program_regs(mjp)) != 0) {
+        goto err_programming_queue_regs;
+    }
+
+    return 0;
+
+err_programming_queue_regs:
+    dma_free_coherent(&mjp->pdev->dev,
+                      mjp->cpl_ring.buf.size,
+                      mjp->cpl_ring.buf.cpu_addr,
+                      mjp->cpl_ring.buf.dma_addr);
 
 err_allocating_cpl_ring:
     dma_free_coherent(&mjp->pdev->dev,
@@ -306,7 +351,7 @@ static int mjp_probe(struct pci_dev *pdev,
         goto err_setting_up_cdev;
     }
 
-    return 0;
+    return res;
 
 err_setting_up_cdev:
 err_programming_regs:

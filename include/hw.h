@@ -30,12 +30,19 @@
 
 /* queue-specific registers */
 
-// to access the SUB_CONS register on queue q, you would do:
-// MJP_REGS_Q_OFFSET + (q * MJP_Q_SIZE) + MJP_REG_SUB_CONS
-// make a macro for this calculation
-
 #define MJP_REGS_Q_OFFSET MJP_REGS_OFFSET + 0x100
 #define MJP_REGS_Q_SIZE      0x100
+
+// To access the SUB_CONS register on queue q, you would do:
+// MJP_REGS_Q_OFFSET + (q * MJP_Q_SIZE) + MJP_REG_SUB_CONS
+//
+// Here are macros for this:
+
+#define MJP_REG_Q_BASE(q) \
+    (MJP_REGS_Q_OFFSET + ((q) * MJP_REGS_Q_SIZE))
+
+#define MJP_Q_REG(q, reg) \
+    (MJP_REG_Q_BASE(q) + (reg))
 
 #define MJP_REG_SUB_BASE_LO  0x000
 #define MJP_REG_SUB_BASE_HI  0x004
