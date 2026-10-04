@@ -130,10 +130,12 @@ static const struct pci_device_id mjp_ids[] = {
 };
 
 /* Allocate a DMA buffer */
-static int mjp_dma_alloc(struct pci_dev *pdev, struct mjp_dma_buf *dma_buf)
+static int mjp_dma_alloc(struct pci_dev *pdev,
+                         struct mjp_dma_buf *dma_buf,
+                         size_t size)
 {
     dma_buf->cpu_addr = dma_alloc_coherent(&pdev->dev,
-                                           PAGE_SIZE,
+                                           size,
                                            &dma_buf->dma_addr,
                                            GFP_KERNEL);
 
@@ -141,7 +143,7 @@ static int mjp_dma_alloc(struct pci_dev *pdev, struct mjp_dma_buf *dma_buf)
         return -ENOMEM;
     }
 
-    dma_buf->size = PAGE_SIZE;
+    dma_buf->size = size;
 
     return 0;
 }
@@ -245,7 +247,7 @@ static int mjp_probe(struct pci_dev *pdev,
         return res;
     }
     
-    if ((res = mjp_dma_alloc(pdev, &mjp->test_buf)) != 0) {
+    if ((res = mjp_dma_alloc(pdev, &mjp->test_buf, PAGE_SIZE)) != 0) {
         return res;
     }
 
