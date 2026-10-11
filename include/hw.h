@@ -19,7 +19,6 @@
 #define MJP_REGS_SIZE          0x01000
 
 #define MJP_REG_VERSION    (MJP_REGS_OFFSET + 0x000) // read-only device/ABI version
-#define MJP_REG_CONTROL    (MJP_REGS_OFFSET + 0x004) // device-enable
 #define MJP_REG_STATUS     (MJP_REGS_OFFSET + 0x008) // e.g. ready/running/error
 #define MJP_REG_INT_STATUS (MJP_REGS_OFFSET + 0x00c) // interrupt causes
 #define MJP_REG_INT_MASK   (MJP_REGS_OFFSET + 0x010) // interrupt masking
@@ -73,6 +72,16 @@
 
 #define MJP_MSIX_VEC_NUM 1
 #define MJP_MSIX_CAP_POS 0 /* 0: don't manually set msix cap_pos */
+
+///////////////////////////////////////////////////////////////////////////////
+// DEVICE STATE MACHINE
+
+// device status (only do DMA when status is READY)
+enum {
+    MJP_DEV_STATUS_RESET, // device is reset
+    MJP_DEV_STATUS_NEEDS_RESET, // device does nothing until reset by driver
+    MJP_DEV_STATUS_READY, // device is ready to do work
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 // RINGS & DESCRIPTORS
