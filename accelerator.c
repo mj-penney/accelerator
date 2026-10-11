@@ -321,6 +321,12 @@ static void mjp_queues_cleanup(struct mjp_accel *mjp)
                       mjp->cpl_ring.buf.dma_addr);
 }
 
+static int mjp_device_reset(struct mjp_accel *mjp)
+{
+    iowrite32(0x1, mjp->regs + MJP_REG_RESET);
+    return 0;
+}
+
 static int mjp_probe(struct pci_dev *pdev,
                     const struct pci_device_id *id)
 {
@@ -332,6 +338,10 @@ static int mjp_probe(struct pci_dev *pdev,
     }
 
     if ((res = mjp_dma_setup(pdev)) != 0) {
+        return res;
+    }
+
+    if ((res = mjp_device_reset(mjp)) != 0) {
         return res;
     }
     
@@ -380,6 +390,7 @@ static void mjp_remove(struct pci_dev *pdev)
                       mjp->test_buf.cpu_addr,
                       mjp->test_buf.dma_addr);
     mjp_queues_cleanup(mjp);
+    mjp_device_reset(mjp);
     device_destroy(mjp_accel_class, mjp->devt);
     cdev_del(&mjp->cdev);
     unregister_chrdev_region(mjp->devt, 1);
