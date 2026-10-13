@@ -34,6 +34,10 @@ int main(void)
         perror("copy data");
     }
 
+    if (ioctl(fd, MJP_IOC_QUEUE_TEST, &req_data)) {
+        perror("queue test");
+    }
+
     close(fd);
     return 0;
 }

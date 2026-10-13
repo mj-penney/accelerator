@@ -75,6 +75,23 @@ static int copy_data_from_uspace(unsigned long arg,
     return 0;
 }
 
+static int mjp_ioc_queue_test(struct mjp_accel *mjp)
+{
+    struct mjp_ring *sub_ring = &mjp->sub_ring;
+    struct mjp_dma_buf *dma_buf = &sub_ring->buf;
+    struct mjp_sub_desc *sub_desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
+
+    sub_desc = &sub_desc[sub_ring->prod % MJP_SUB_RING_SIZE];
+    //sub_desc->job_id = sub_ring->prod % MJP_SUB_RING_SIZE;
+    sub_desc->job_id = 3;
+
+    sub_ring->prod++;
+    iowrite32(sub_ring->prod, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+
+    iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
+    return 0;
+}
+
 /* FILE OPERATIONS */
 
 static int accel_open(struct inode *inode, struct file *file)
@@ -108,6 +125,9 @@ static long accel_ioctl(struct file *file,
         case MJP_IOC_COPY:
             pr_info("mjp_accel: ioctl copy data\n");
             return copy_data_from_uspace(arg, &mjp->test_buf);
+        case MJP_IOC_QUEUE_TEST:
+            pr_info("mjp_accel: testing queue\n");
+            return mjp_ioc_queue_test(mjp);
         default:
             return -ENOTTY;
     }
@@ -173,6 +193,8 @@ static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
     mjp->pdev = pdev;
     pci_set_drvdata(pdev, mjp);
 
+    pci_set_master(pdev);
+
     return mjp;
 }
 
@@ -182,9 +204,9 @@ static int mjp_dma_setup(struct pci_dev *pdev)
 
     res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
 
-    if (res) {
-        res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
-    }
+    //if (res) {
+    //    res = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+    //}
 
     return res;
 }
@@ -259,6 +281,8 @@ static int mjp_queues_program_regs(struct mjp_accel *mjp)
               mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
     iowrite32(cpl_ring->cons,
               mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    pr_info("Sub ring base DMA addr: 0x%llx\n", (uint64_t)sub_ring->buf.dma_addr);
 
     return 0;
 }
@@ -360,6 +384,8 @@ static int mjp_probe(struct pci_dev *pdev,
     if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
         goto err_setting_up_cdev;
     }
+
+    //pci_set_master(pdev);
 
     return res;
 

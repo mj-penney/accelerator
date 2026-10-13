@@ -87,7 +87,7 @@ enum {
 // RINGS & DESCRIPTORS
 
 // size refers to the number of descriptors, not bytes
-#define MJP_SUB_RING_SIZE 16
+#define MJP_SUB_RING_SIZE 4
 #define MJP_CPL_RING_SIZE 16
 
 /* submission/completion descriptors */

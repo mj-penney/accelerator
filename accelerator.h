@@ -8,7 +8,7 @@ struct mjp_accel_user_data {
 
 #define MJP_IOC_MAGIC 'm'
 #define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
-#define MJP_IOC_COPY  _IOW(MJP_IOC_MAGIC, 1, \
-                                 struct mjp_accel_user_data)
+#define MJP_IOC_COPY  _IOW(MJP_IOC_MAGIC, 1, struct mjp_accel_user_data)
+#define MJP_IOC_QUEUE_TEST  _IO(MJP_IOC_MAGIC, 2)
 
 #endif
