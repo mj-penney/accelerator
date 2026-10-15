@@ -75,20 +75,49 @@ static int copy_data_from_uspace(unsigned long arg,
     return 0;
 }
 
+static int mjp_queue_push(struct mjp_accel *mjp)
+{
+    struct mjp_ring *ring = &mjp->sub_ring;
+    struct mjp_dma_buf *dma_buf = &ring->buf;
+    struct mjp_sub_desc *desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
+
+    desc = &desc[ring->prod % MJP_SUB_RING_SIZE];
+    desc->job_id = ring->prod;
+    pr_info("Submitted job: job_id: %llu\n", desc->job_id);
+
+    ring->prod++;
+    iowrite32(ring->prod, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+
+    return 0;
+}
+
+static int mjp_queue_pop(struct mjp_accel *mjp)
+{
+    struct mjp_ring *ring = &mjp->cpl_ring;
+    struct mjp_dma_buf *dma_buf = &ring->buf;
+    struct mjp_cpl_desc *desc = (struct mjp_cpl_desc *)dma_buf->cpu_addr;
+
+    desc = &desc[ring->cons % MJP_CPL_RING_SIZE];
+    pr_info("Received completed job: job_id: %llu\n", desc->job_id);
+
+    ring->cons++;
+    iowrite32(ring->cons, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    return 0;
+}
+
 static int mjp_ioc_queue_test(struct mjp_accel *mjp)
 {
-    struct mjp_ring *sub_ring = &mjp->sub_ring;
-    struct mjp_dma_buf *dma_buf = &sub_ring->buf;
-    struct mjp_sub_desc *sub_desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
-
-    sub_desc = &sub_desc[sub_ring->prod % MJP_SUB_RING_SIZE];
-    //sub_desc->job_id = sub_ring->prod % MJP_SUB_RING_SIZE;
-    sub_desc->job_id = 3;
-
-    sub_ring->prod++;
-    iowrite32(sub_ring->prod, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+    if (mjp_queue_push(mjp)) {
+        return 1; // error
+    }
 
     iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
+
+    if (mjp_queue_pop(mjp)) {
+        return 1; // error
+    }
+
     return 0;
 }
 
