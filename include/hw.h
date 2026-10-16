@@ -18,14 +18,11 @@
 #define MJP_REGS_OFFSET        0x0
 #define MJP_REGS_SIZE          0x01000
 
-#define MJP_REG_VERSION    (MJP_REGS_OFFSET + 0x000) // read-only device/ABI version
-#define MJP_REG_STATUS     (MJP_REGS_OFFSET + 0x008) // e.g. ready/running/error
-#define MJP_REG_INT_STATUS (MJP_REGS_OFFSET + 0x00c) // interrupt causes
-#define MJP_REG_INT_MASK   (MJP_REGS_OFFSET + 0x010) // interrupt masking
-#define MJP_REG_RESET      (MJP_REGS_OFFSET + 0x014) // reset device/queue state
-
-#define MJP_DMA_ADDR_LO (MJP_REGS_OFFSET + 0x018) // for temp debugging path
-#define MJP_DMA_ADDR_HI (MJP_REGS_OFFSET + 0x01c) // for temp debugging path
+#define MJP_REG_VERSION       (MJP_REGS_OFFSET + 0x000) // read-only device/ABI version
+#define MJP_REG_DEVICE_STATUS (MJP_REGS_OFFSET + 0x004) // device status
+#define MJP_REG_INT_STATUS    (MJP_REGS_OFFSET + 0x00c) // interrupt causes
+#define MJP_REG_INT_MASK      (MJP_REGS_OFFSET + 0x010) // interrupt masking
+#define MJP_REG_CONTROL       (MJP_REGS_OFFSET + 0x014) // reset device/queue state
 
 /* queue-specific registers */
 
@@ -76,12 +73,17 @@
 ///////////////////////////////////////////////////////////////////////////////
 // DEVICE STATE MACHINE
 
-// device status (only do DMA when status is READY)
-enum {
-    MJP_DEV_STATUS_RESET, // device is reset
-    MJP_DEV_STATUS_NEEDS_RESET, // device does nothing until reset by driver
-    MJP_DEV_STATUS_READY, // device is ready to do work
-};
+// control commands the driver can send to the device
+typedef enum {
+    MJP_CONTROL_DEVICE_RESET,
+    MJP_CONTROL_DEVICE_ENABLE,
+} mjp_control;
+
+typedef enum {
+    MJP_DEVICE_STATUS_RESET,   // dev sets this once reset
+    MJP_DEVICE_STATUS_ENABLED, // dev sets this once enabled
+    MJP_DEVICE_STATUS_ERROR,   // dev sets this if error
+} mjp_device_status;
 
 ///////////////////////////////////////////////////////////////////////////////
 // RINGS & DESCRIPTORS

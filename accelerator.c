@@ -32,16 +32,11 @@ struct mjp_accel {
 
     struct mjp_ring sub_ring;
     struct mjp_ring cpl_ring;
-
-    /* Temporary debug buffer.
-     * Remove it once the basic ring loopback/debug path (plan stage 3.1) is
-     * established.
-     */
-    struct mjp_dma_buf test_buf;
 };
 
 /* Data Operations */
 
+/*
 static int copy_data_from_uspace(unsigned long arg,
                                  struct mjp_dma_buf *dma_buf)
 {
@@ -74,6 +69,7 @@ static int copy_data_from_uspace(unsigned long arg,
 
     return 0;
 }
+*/
 
 static int mjp_queue_push(struct mjp_accel *mjp)
 {
@@ -152,8 +148,8 @@ static long accel_ioctl(struct file *file,
             pr_info("mjp_accel: ioctl called\n");
             return 0;
         case MJP_IOC_COPY:
-            pr_info("mjp_accel: ioctl copy data\n");
-            return copy_data_from_uspace(arg, &mjp->test_buf);
+            pr_info("mjp_accel: old ioctl no longer in use\n");
+            return 0;
         case MJP_IOC_QUEUE_TEST:
             pr_info("mjp_accel: testing queue\n");
             return mjp_ioc_queue_test(mjp);
@@ -240,16 +236,6 @@ static int mjp_dma_setup(struct pci_dev *pdev)
     return res;
 }
 
-static int mjp_device_program_regs(struct mjp_accel *mjp,
-                                   struct mjp_dma_buf *dma_buf)
-{
-    iowrite32(lower_32_bits(dma_buf->dma_addr),
-              mjp->regs + MJP_DMA_ADDR_LO);
-    iowrite32(upper_32_bits(dma_buf->dma_addr),
-              mjp->regs + MJP_DMA_ADDR_HI);
-    return 0;
-}
-
 static int mjp_cdev_setup(struct mjp_accel *mjp, struct pci_dev *pdev)
 {
     int res;
@@ -284,7 +270,7 @@ err_chrdev:
     return res;
 }
 
-static int mjp_queues_program_regs(struct mjp_accel *mjp)
+static int mjp_device_program_regs(struct mjp_accel *mjp)
 {
     struct mjp_ring *sub_ring = &mjp->sub_ring;
     struct mjp_ring *cpl_ring = &mjp->cpl_ring;
@@ -342,17 +328,7 @@ static int mjp_queues_setup(struct mjp_accel *mjp)
     mjp->cpl_ring.cons = 0;
     mjp->cpl_ring.size = MJP_CPL_RING_SIZE;
 
-    if ((res = mjp_queues_program_regs(mjp)) != 0) {
-        goto err_programming_queue_regs;
-    }
-
     return 0;
-
-err_programming_queue_regs:
-    dma_free_coherent(&mjp->pdev->dev,
-                      mjp->cpl_ring.buf.size,
-                      mjp->cpl_ring.buf.cpu_addr,
-                      mjp->cpl_ring.buf.dma_addr);
 
 err_allocating_cpl_ring:
     dma_free_coherent(&mjp->pdev->dev,
@@ -376,8 +352,26 @@ static void mjp_queues_cleanup(struct mjp_accel *mjp)
 
 static int mjp_device_reset(struct mjp_accel *mjp)
 {
-    iowrite32(0x1, mjp->regs + MJP_REG_RESET);
-    return 0;
+    iowrite32(MJP_CONTROL_DEVICE_RESET, mjp->regs + MJP_REG_CONTROL);
+
+    mjp_device_status dev_status = ioread32(mjp->regs + MJP_REG_DEVICE_STATUS);
+    if (dev_status == MJP_DEVICE_STATUS_RESET) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int mjp_device_enable(struct mjp_accel *mjp)
+{
+    iowrite32(MJP_CONTROL_DEVICE_ENABLE, mjp->regs + MJP_REG_CONTROL);
+
+    mjp_device_status dev_status = ioread32(mjp->regs + MJP_REG_DEVICE_STATUS);
+    if (dev_status == MJP_DEVICE_STATUS_ENABLED) {
+        return 0;
+    }
+
+    return 1;
 }
 
 static int mjp_probe(struct pci_dev *pdev,
@@ -394,45 +388,34 @@ static int mjp_probe(struct pci_dev *pdev,
         return res;
     }
 
-    if ((res = mjp_device_reset(mjp)) != 0) {
-        return res;
-    }
-    
-    if ((res = mjp_dma_alloc(pdev, &mjp->test_buf, PAGE_SIZE)) != 0) {
-        goto err_allocating_test_buf;
-    }
-
     if ((res = mjp_queues_setup(mjp)) != 0) {
-        goto err_setting_up_queues;
-    }
-
-    if ((res = mjp_device_program_regs(mjp, &mjp->test_buf)) != 0) {
-        goto err_programming_regs;
+        return res;
     }
 
     if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
         goto err_setting_up_cdev;
     }
 
-    //pci_set_master(pdev);
+    if ((res = mjp_device_reset(mjp)) != 0) {
+        goto err_resetting_device;
+    }
+
+    if ((res = mjp_device_program_regs(mjp)) != 0) {
+        goto err_programming_device_regs;
+    }
+
+    if ((res = mjp_device_enable(mjp)) != 0) {
+        goto err_enabling_device;
+    }
 
     return res;
 
+err_enabling_device:
+err_programming_device_regs:
+err_resetting_device:
 err_setting_up_cdev:
-err_programming_regs:
     mjp_queues_cleanup(mjp);
 
-err_setting_up_queues:
-    dma_free_coherent(&pdev->dev,
-                      mjp->test_buf.size,
-                      mjp->test_buf.cpu_addr,
-                      mjp->test_buf.dma_addr);
-
-    mjp->test_buf.cpu_addr = NULL;
-    mjp->test_buf.dma_addr = 0;
-    mjp->test_buf.size = 0;
-
-err_allocating_test_buf:
     return res;
 }
 
@@ -440,10 +423,6 @@ static void mjp_remove(struct pci_dev *pdev)
 {
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
-    dma_free_coherent(&pdev->dev,
-                      mjp->test_buf.size,
-                      mjp->test_buf.cpu_addr,
-                      mjp->test_buf.dma_addr);
     mjp_queues_cleanup(mjp);
     mjp_device_reset(mjp);
     device_destroy(mjp_accel_class, mjp->devt);
