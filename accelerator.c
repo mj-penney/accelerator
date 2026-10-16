@@ -24,14 +24,18 @@ struct mjp_ring {
     uint32_t cons; // bookkeeping: consumer index
 };
 
+struct mjp_queue {
+    struct mjp_ring sub_ring;
+    struct mjp_ring cpl_ring;
+};
+
 struct mjp_accel {
     struct pci_dev *pdev;
     void __iomem *regs;
     struct cdev cdev;
     dev_t devt;
 
-    struct mjp_ring sub_ring;
-    struct mjp_ring cpl_ring;
+    struct mjp_queue *queues;
 };
 
 /* Data Operations */
@@ -73,7 +77,8 @@ static int copy_data_from_uspace(unsigned long arg,
 
 static int mjp_queue_push(struct mjp_accel *mjp)
 {
-    struct mjp_ring *ring = &mjp->sub_ring;
+    struct mjp_queue *queue = mjp->queues;
+    struct mjp_ring *ring = &queue->sub_ring;
     struct mjp_dma_buf *dma_buf = &ring->buf;
     struct mjp_sub_desc *desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
 
@@ -89,7 +94,8 @@ static int mjp_queue_push(struct mjp_accel *mjp)
 
 static int mjp_queue_pop(struct mjp_accel *mjp)
 {
-    struct mjp_ring *ring = &mjp->cpl_ring;
+    struct mjp_queue *queue = mjp->queues;
+    struct mjp_ring *ring = &queue->cpl_ring;
     struct mjp_dma_buf *dma_buf = &ring->buf;
     struct mjp_cpl_desc *desc = (struct mjp_cpl_desc *)dma_buf->cpu_addr;
 
@@ -272,8 +278,9 @@ err_chrdev:
 
 static int mjp_device_program_regs(struct mjp_accel *mjp)
 {
-    struct mjp_ring *sub_ring = &mjp->sub_ring;
-    struct mjp_ring *cpl_ring = &mjp->cpl_ring;
+    struct mjp_queue *queue = &mjp->queues[0];
+    struct mjp_ring *sub_ring = &queue->sub_ring;
+    struct mjp_ring *cpl_ring = &queue->cpl_ring;
 
     iowrite32(lower_32_bits(sub_ring->buf.dma_addr),
               mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_BASE_LO));
@@ -305,49 +312,62 @@ static int mjp_device_program_regs(struct mjp_accel *mjp)
 static int mjp_queues_setup(struct mjp_accel *mjp)
 {
     int res;
+    struct mjp_queue *queues;
     size_t sub_ring_bytes = MJP_SUB_RING_SIZE * sizeof(struct mjp_sub_desc);
     size_t cpl_ring_bytes = MJP_CPL_RING_SIZE * sizeof(struct mjp_cpl_desc);
 
+
+    if (!(mjp->queues = kcalloc(1, sizeof(struct mjp_queue), GFP_KERNEL))) {
+        res = 1;
+        goto err_allocating_queue;
+    }
+    queues = mjp->queues;
+
     if ((res = mjp_dma_alloc(mjp->pdev,
-                             &mjp->sub_ring.buf,
+                             &queues[0].sub_ring.buf,
                              sub_ring_bytes)) != 0) {
-        return res;
+        goto err_allocating_sub_ring;
     }
 
     if ((res = mjp_dma_alloc(mjp->pdev,
-                             &mjp->cpl_ring.buf,
+                             &queues[0].cpl_ring.buf,
                              cpl_ring_bytes)) != 0) {
         goto err_allocating_cpl_ring;
     }
 
-    mjp->sub_ring.prod = 0;
-    mjp->sub_ring.cons = 0;
-    mjp->sub_ring.size = MJP_SUB_RING_SIZE;
+    queues[0].sub_ring.prod = 0;
+    queues[0].sub_ring.cons = 0;
+    queues[0].sub_ring.size = MJP_SUB_RING_SIZE;
 
-    mjp->cpl_ring.prod = 0;
-    mjp->cpl_ring.cons = 0;
-    mjp->cpl_ring.size = MJP_CPL_RING_SIZE;
+    queues[0].cpl_ring.prod = 0;
+    queues[0].cpl_ring.cons = 0;
+    queues[0].cpl_ring.size = MJP_CPL_RING_SIZE;
 
     return 0;
 
 err_allocating_cpl_ring:
     dma_free_coherent(&mjp->pdev->dev,
-                      mjp->sub_ring.buf.size,
-                      mjp->sub_ring.buf.cpu_addr,
-                      mjp->sub_ring.buf.dma_addr);
+                      queues[0].sub_ring.buf.size,
+                      queues[0].sub_ring.buf.cpu_addr,
+                      queues[0].sub_ring.buf.dma_addr);
+err_allocating_sub_ring:
+    kfree(queues);
+err_allocating_queue:
     return res;
 }
 
 static void mjp_queues_cleanup(struct mjp_accel *mjp)
 {
+    struct mjp_queue *queues = mjp->queues;
     dma_free_coherent(&mjp->pdev->dev,
-                      mjp->sub_ring.buf.size,
-                      mjp->sub_ring.buf.cpu_addr,
-                      mjp->sub_ring.buf.dma_addr);
+                      queues[0].sub_ring.buf.size,
+                      queues[0].sub_ring.buf.cpu_addr,
+                      queues[0].sub_ring.buf.dma_addr);
     dma_free_coherent(&mjp->pdev->dev,
-                      mjp->cpl_ring.buf.size,
-                      mjp->cpl_ring.buf.cpu_addr,
-                      mjp->cpl_ring.buf.dma_addr);
+                      queues[0].cpl_ring.buf.size,
+                      queues[0].cpl_ring.buf.cpu_addr,
+                      queues[0].cpl_ring.buf.dma_addr);
+    kfree(mjp->queues);
 }
 
 static int mjp_device_reset(struct mjp_accel *mjp)
