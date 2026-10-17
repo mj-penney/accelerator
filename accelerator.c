@@ -11,6 +11,13 @@
 #include "accelerator.h"
 #include "include/hw.h"
 
+static atomic64_t job_counter = ATOMIC64_INIT(0);
+
+static u64 alloc_job_id(void)
+{
+    return (u64)atomic64_inc_return(&job_counter);
+}
+
 struct mjp_dma_buf {
     void *cpu_addr;
     dma_addr_t dma_addr;
@@ -75,19 +82,28 @@ static int copy_data_from_uspace(unsigned long arg,
 }
 */
 
-static int mjp_queue_push(struct mjp_accel *mjp)
+static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
 {
     struct mjp_queue *queue = mjp->queues;
     struct mjp_ring *ring = &queue->sub_ring;
     struct mjp_dma_buf *dma_buf = &ring->buf;
+
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
+
+    if (prod_idx - cons_idx == MJP_SUB_RING_SIZE) {
+        return 1; // error - ring full, drop job request
+    }
+
     struct mjp_sub_desc *desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
+    desc = &desc[prod_idx % MJP_SUB_RING_SIZE];
 
-    desc = &desc[ring->prod % MJP_SUB_RING_SIZE];
-    desc->job_id = ring->prod;
-    pr_info("Submitted job: job_id: %llu\n", desc->job_id);
+    memcpy(desc, job, sizeof(struct mjp_sub_desc));
 
-    ring->prod++;
-    iowrite32(ring->prod, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+    pr_info("Submitted job: job_id: %llu\n", job->job_id);
+
+    prod_idx++;
+    iowrite32(prod_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
 
     return 0;
 }
@@ -97,29 +113,35 @@ static int mjp_queue_pop(struct mjp_accel *mjp)
     struct mjp_queue *queue = mjp->queues;
     struct mjp_ring *ring = &queue->cpl_ring;
     struct mjp_dma_buf *dma_buf = &ring->buf;
-    struct mjp_cpl_desc *desc = (struct mjp_cpl_desc *)dma_buf->cpu_addr;
 
-    desc = &desc[ring->cons % MJP_CPL_RING_SIZE];
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    struct mjp_cpl_desc *desc = (struct mjp_cpl_desc *)dma_buf->cpu_addr;
+    desc = &desc[cons_idx % MJP_CPL_RING_SIZE];
+
     pr_info("Received completed job: job_id: %llu\n", desc->job_id);
 
-    ring->cons++;
-    iowrite32(ring->cons, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+    cons_idx++;
+    iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
 
     return 0;
 }
 
-static int mjp_ioc_queue_test(struct mjp_accel *mjp)
+static int mjp_submit_job(struct mjp_accel *mjp)
 {
-    if (mjp_queue_push(mjp)) {
+    struct mjp_sub_desc desc;
+
+    desc.job_id = alloc_job_id();
+    
+    if (mjp_queue_push(mjp, &desc)) {
         return 1; // error
     }
 
     iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
 
     if (mjp_queue_pop(mjp)) {
-        return 1; // error
+        return 1;
     }
-
     return 0;
 }
 
@@ -158,7 +180,7 @@ static long accel_ioctl(struct file *file,
             return 0;
         case MJP_IOC_QUEUE_TEST:
             pr_info("mjp_accel: testing queue\n");
-            return mjp_ioc_queue_test(mjp);
+            return mjp_submit_job(mjp);
         default:
             return -ENOTTY;
     }
