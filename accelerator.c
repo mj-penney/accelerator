@@ -139,9 +139,6 @@ static int mjp_submit_job(struct mjp_accel *mjp)
 
     iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
 
-    if (mjp_queue_pop(mjp)) {
-        return 1;
-    }
     return 0;
 }
 
@@ -253,8 +250,11 @@ static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
 
 static irqreturn_t mjp_irq_handler(int irq, void *dev_id)
 {
+    pr_info("Interrupt triggered\n");
+
     struct mjp_accel *mjp = dev_id;
-    (void)mjp;
+    mjp_queue_pop(mjp);
+
     return IRQ_HANDLED;
 }
 
