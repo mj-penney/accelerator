@@ -1,3 +1,14 @@
+../qemu/build/qemu-system-x86_64 \
+    -M q35 \
+    -cpu max \
+    -kernel ../linux/arch/x86/boot/bzImage \
+    -initrd initrd.cpio.gz \
+    -device mjp-accel \
+    -monitor stdio
+    #-S -s -append "nokaslr"
+
+exit
+
 if [ $1 eq "graphic" ]; then
     ../qemu/build/qemu-system-x86_64 \
         -M q35 \
