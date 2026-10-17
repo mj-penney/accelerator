@@ -229,6 +229,32 @@ static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
     return mjp;
 }
 
+static irqreturn_t mjp_irq_handler(int irq, void *dev_id)
+{
+    struct mjp_accel *mjp = dev_id;
+    (void)mjp;
+    return IRQ_HANDLED;
+}
+
+static int mjp_msix_setup(struct pci_dev *pdev, struct mjp_accel *mjp)
+{
+    int res, nvecs;
+
+    nvecs = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSIX);
+    if (nvecs < 0) {
+        return nvecs;
+    }
+
+    res = devm_request_irq(&pdev->dev,
+                           pci_irq_vector(pdev, 0),
+                           mjp_irq_handler,
+                           0,
+                           "mjp-accel",
+                           mjp);
+
+    return res;
+}
+
 static int mjp_dma_setup(struct pci_dev *pdev)
 {
     int res = 0;
@@ -409,6 +435,10 @@ static int mjp_probe(struct pci_dev *pdev,
     }
 
     if ((res = mjp_queues_setup(mjp)) != 0) {
+        return res;
+    }
+
+    if ((res = mjp_msix_setup(pdev, mjp)) != 0) {
         return res;
     }
 
