@@ -42,6 +42,20 @@ struct mjp_accel {
     struct mjp_queue *queues;
 };
 
+static struct mjp_cpl_desc *mjp_queue_get_cpl_ring_base(struct mjp_accel *mjp,
+                                                        int queue_id)
+{
+    struct mjp_queue *queues = mjp->queues;
+    return (struct mjp_cpl_desc *)queues[queue_id].cpl_ring.buf.cpu_addr;
+}
+
+static struct mjp_sub_desc *mjp_queue_get_sub_ring_base(struct mjp_accel *mjp,
+                                                        int queue_id)
+{
+    struct mjp_queue *queues = mjp->queues;
+    return (struct mjp_sub_desc *)queues[queue_id].sub_ring.buf.cpu_addr;
+}
+
 /* Data Operations */
 
 /*
@@ -81,9 +95,8 @@ static int copy_data_from_uspace(unsigned long arg,
 
 static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
 {
-    struct mjp_queue *queue = mjp->queues;
-    struct mjp_ring *ring = &queue->sub_ring;
-    struct mjp_dma_buf *dma_buf = &ring->buf;
+    struct mjp_sub_desc *ring_base = mjp_queue_get_sub_ring_base(mjp, 0);
+    struct mjp_sub_desc *desc;
 
     uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
     uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
@@ -92,8 +105,7 @@ static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
         return 1; // error - ring full, drop job request
     }
 
-    struct mjp_sub_desc *desc = (struct mjp_sub_desc *)dma_buf->cpu_addr;
-    desc = &desc[prod_idx % MJP_SUB_RING_SIZE];
+    desc = &ring_base[prod_idx % MJP_SUB_RING_SIZE];
 
     memcpy(desc, job, sizeof(struct mjp_sub_desc));
 
@@ -105,28 +117,15 @@ static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
     return 0;
 }
 
-static int mjp_queue_pop(struct mjp_accel *mjp)
-{
-    struct mjp_queue *queue = mjp->queues;
-    struct mjp_ring *ring = &queue->cpl_ring;
-    struct mjp_dma_buf *dma_buf = &ring->buf;
-
-    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
-
-    struct mjp_cpl_desc *desc = (struct mjp_cpl_desc *)dma_buf->cpu_addr;
-    desc = &desc[cons_idx % MJP_CPL_RING_SIZE];
-
-    pr_info("Received completed job: job_id: %llu\n", desc->job_id);
-
-    cons_idx++;
-    iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
-
-    return 0;
-}
-
 static int mjp_submit_job(struct mjp_accel *mjp)
 {
     struct mjp_sub_desc desc;
+
+    desc.job_id = alloc_job_id();
+    
+    if (mjp_queue_push(mjp, &desc)) {
+        return 1; // error
+    }
 
     desc.job_id = alloc_job_id();
     
@@ -245,12 +244,26 @@ static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
     return mjp;
 }
 
-static irqreturn_t mjp_irq_handler(int irq, void *dev_id)
+static irqreturn_t mjp_queue_flush_cpl_ring(int irq, void *dev_id)
 {
-    pr_info("Interrupt triggered\n");
-
     struct mjp_accel *mjp = dev_id;
-    mjp_queue_pop(mjp);
+
+    struct mjp_cpl_desc *ring_base;
+    struct mjp_cpl_desc *desc;
+
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    ring_base = mjp_queue_get_cpl_ring_base(mjp, 0);
+
+    while (cons_idx != prod_idx) {
+        pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
+        desc = &ring_base[cons_idx % MJP_CPL_RING_SIZE];
+        cons_idx++;
+        pr_info("Received completed job: job_id: %llu\n", desc->job_id);
+    }
+
+    iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
 
     return IRQ_HANDLED;
 }
@@ -266,7 +279,7 @@ static int mjp_msix_setup(struct pci_dev *pdev, struct mjp_accel *mjp)
 
     res = devm_request_irq(&pdev->dev,
                            pci_irq_vector(pdev, 0),
-                           mjp_irq_handler,
+                           mjp_queue_flush_cpl_ring,
                            0,
                            "mjp-accel",
                            mjp);
