@@ -26,9 +26,6 @@ struct mjp_dma_buf {
 
 struct mjp_ring {
     struct mjp_dma_buf buf;
-    uint32_t size; // bookkeeping: number of descriptors in the ring
-    uint32_t prod; // bookkeeping: producer index
-    uint32_t cons; // bookkeeping: consumer index
 };
 
 struct mjp_queue {
@@ -334,23 +331,15 @@ static int mjp_device_program_regs(struct mjp_accel *mjp)
               mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_BASE_LO));
     iowrite32(upper_32_bits(sub_ring->buf.dma_addr),
               mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_BASE_HI));
-    iowrite32(sub_ring->size,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_SIZE));
-    iowrite32(sub_ring->prod,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
-    iowrite32(sub_ring->cons,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
+    iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+    iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
 
     iowrite32(lower_32_bits(cpl_ring->buf.dma_addr),
               mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_BASE_LO));
     iowrite32(upper_32_bits(cpl_ring->buf.dma_addr),
               mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_BASE_HI));
-    iowrite32(cpl_ring->size,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_SIZE));
-    iowrite32(cpl_ring->prod,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
-    iowrite32(cpl_ring->cons,
-              mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+    iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
+    iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
 
     pr_info("Sub ring base DMA addr: 0x%llx\n", (uint64_t)sub_ring->buf.dma_addr);
 
@@ -382,14 +371,6 @@ static int mjp_queues_setup(struct mjp_accel *mjp)
                              cpl_ring_bytes)) != 0) {
         goto err_allocating_cpl_ring;
     }
-
-    queues[0].sub_ring.prod = 0;
-    queues[0].sub_ring.cons = 0;
-    queues[0].sub_ring.size = MJP_SUB_RING_SIZE;
-
-    queues[0].cpl_ring.prod = 0;
-    queues[0].cpl_ring.cons = 0;
-    queues[0].cpl_ring.size = MJP_CPL_RING_SIZE;
 
     return 0;
 
