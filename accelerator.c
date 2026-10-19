@@ -25,6 +25,7 @@ struct mjp_dma_buf {
 
 struct mjp_ring {
     struct mjp_dma_buf buf;
+    uint64_t size; // number of descriptors, not bytes
 };
 
 struct mjp_queue {
@@ -55,30 +56,64 @@ static struct mjp_sub_desc *mjp_queue_get_sub_ring_base(struct mjp_accel *mjp,
     return (struct mjp_sub_desc *)queues[queue_id].sub_ring.buf.cpu_addr;
 }
 
-/* Data Operations */
 
-static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
+/* TODO:
+ * Only call this with the sub_ring lock.
+ */
+static uint32_t mjp_count_avail_sub_ring_slots(struct mjp_accel *mjp,
+                                               int queue_id)
 {
-    struct mjp_sub_desc *ring_base = mjp_queue_get_sub_ring_base(mjp, 0);
-    struct mjp_sub_desc *desc;
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_PROD));
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_CONS));
 
-    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
-    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
+    return MJP_SUB_RING_SIZE - (prod_idx - cons_idx);
+}
 
-    if (prod_idx - cons_idx == MJP_SUB_RING_SIZE) {
-        return 1; // error - ring full, drop job request
+/* Fills the submission ring with the provided job descriptors, in the order
+ * provided.
+ *
+ * Returns the number of jobs actually submitted.
+ *
+ * TODO:
+ * Only call this with the sub_ring lock.
+ */
+static u32 mjp_queue_fill_sub_ring(struct mjp_accel *mjp,
+                                   int queue_id,
+                                   struct mjp_sub_desc *jobs,
+                                   int count)
+{
+    struct mjp_sub_desc *ring_base;
+    struct mjp_sub_desc *dest;
+    struct mjp_sub_desc *src;
+    u32 filled = 0;
+
+    uint32_t available = mjp_count_avail_sub_ring_slots(mjp, queue_id);
+    ring_base = mjp_queue_get_sub_ring_base(mjp, queue_id);
+
+    if (!available) {
+        return filled; // ring full, return 0
     }
 
-    desc = &ring_base[prod_idx % MJP_SUB_RING_SIZE];
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_PROD));
 
-    memcpy(desc, job, sizeof(struct mjp_sub_desc));
+    while ((filled < count) && (filled < available)) {
+        src  = &jobs[filled];
+        dest = &ring_base[(prod_idx + filled) % MJP_SUB_RING_SIZE];
 
-    pr_info("Submitted job: job_id: %llu\n", job->job_id);
+        memcpy(dest, src, sizeof(struct mjp_sub_desc));
 
-    prod_idx++;
-    iowrite32(prod_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
+        pr_info("Submitted job: job_id: %llu\n", dest->job_id);
 
-    return 0;
+        filled++;
+    }
+
+    prod_idx = prod_idx + filled;
+    iowrite32(prod_idx, mjp->regs + MJP_Q_REG(queue_id, MJP_REG_SUB_PROD));
+
+    return filled;
 }
 
 static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
@@ -93,8 +128,12 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
     desc.job_id = alloc_job_id();
     desc.job = job;
     
-    if (mjp_queue_push(mjp, &desc)) {
-        return 1; // error
+    /* TODO:
+     * Loop through all the rings and keep attempting to fill the sub rings
+     * until the job is successfully submitted.
+     */
+    if (!mjp_queue_fill_sub_ring(mjp, 0, &desc, 1)) {
+        return 1;
     }
 
     iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
@@ -339,12 +378,14 @@ static int mjp_queues_setup(struct mjp_accel *mjp)
                              sub_ring_bytes)) != 0) {
         goto err_allocating_sub_ring;
     }
+    queues[0].sub_ring.size = MJP_SUB_RING_SIZE;
 
     if ((res = mjp_dma_alloc(mjp->pdev,
                              &queues[0].cpl_ring.buf,
                              cpl_ring_bytes)) != 0) {
         goto err_allocating_cpl_ring;
     }
+    queues[0].cpl_ring.size = MJP_CPL_RING_SIZE;
 
     return 0;
 
