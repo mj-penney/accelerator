@@ -119,14 +119,13 @@ static u32 mjp_queue_fill_sub_ring(struct mjp_accel *mjp,
 static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
-    struct mjp_user_job job;
     
-    if (copy_from_user(&job, (void __user *)arg, sizeof(job))) {
+    if (copy_from_user(&desc.job,
+                       (void __user *)arg,
+                       sizeof(struct mjp_user_job))) {
         return -EFAULT;
     }
-
     desc.job_id = alloc_job_id();
-    desc.job = job;
     
     /* TODO:
      * Loop through all the rings and keep attempting to fill the sub rings
