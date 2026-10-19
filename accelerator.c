@@ -257,10 +257,10 @@ static irqreturn_t mjp_queue_flush_cpl_ring(int irq, void *dev_id)
     ring_base = mjp_queue_get_cpl_ring_base(mjp, 0);
 
     while (cons_idx != prod_idx) {
-        pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
         desc = &ring_base[cons_idx % MJP_CPL_RING_SIZE];
-        cons_idx++;
+        pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
         pr_info("Received completed job: job_id: %llu\n", desc->job_id);
+        cons_idx++;
     }
 
     iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
