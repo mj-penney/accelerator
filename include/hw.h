@@ -86,35 +86,43 @@ typedef enum {
 } mjp_device_status;
 
 ///////////////////////////////////////////////////////////////////////////////
-// RINGS & DESCRIPTORS
+// RINGS/DESCRIPTORS/JOBS
 
 // size refers to the number of descriptors, not bytes
 #define MJP_SUB_RING_SIZE 4
 #define MJP_CPL_RING_SIZE 16
 
+/* This is what userspace submits when it wants the accelerator to do a job */
+
+struct mjp_user_job {
+
+    /* Handles for the input buffer containing the data that userspace wants to
+     * process, and the output buffer where the result will be written.
+     * These are DMA buffers allocated in the kernel and mmap'd into the user's
+     * address space.
+     */
+    uint32_t input_handle;
+    uint32_t output_handle;
+
+    uint32_t opcode;
+};
+
 /* submission/completion descriptors */
 
 struct mjp_sub_desc {
     uint64_t job_id;
-    uint32_t opcode;
-    uint32_t flags;
-
-    uint64_t input_addr;
-    uint64_t output_addr;
-
-    uint32_t input_len;
-    uint32_t output_len;
-
-    uint32_t op_param0;
-    uint32_t op_param1;
+    struct mjp_user_job job;
 };
 
 struct mjp_cpl_desc {
     uint64_t job_id;
-    uint32_t status;
-    uint32_t flags;
-    uint32_t output_len;
-    uint32_t reserved;
 };
+
+///////////////////////////////////////////////////////////////////////////////
+// IOCTL
+
+#define MJP_IOC_MAGIC 'm'
+#define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
+#define MJP_IOC_QUEUE_TEST  _IOW(MJP_IOC_MAGIC, 2, struct mjp_user_job)
 
 #endif

@@ -8,7 +8,6 @@
 #include <linux/pci.h>
 #include <linux/ioctl.h>
 
-#include "accelerator.h"
 #include "include/hw.h"
 
 static atomic64_t job_counter = ATOMIC64_INIT(0);
@@ -58,41 +57,6 @@ static struct mjp_sub_desc *mjp_queue_get_sub_ring_base(struct mjp_accel *mjp,
 
 /* Data Operations */
 
-/*
-static int copy_data_from_uspace(unsigned long arg,
-                                 struct mjp_dma_buf *dma_buf)
-{
-    struct mjp_accel_user_data req;
-    
-    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
-        return -EFAULT;
-    }
-
-    if (req.size > dma_buf->size) {
-        pr_info("Data too big for buffer\n");
-        return -ENOMEM;
-    }
-
-    if (!access_ok((void __user *)req.data, req.size)) {
-        return -EFAULT;
-    }
-
-    if (copy_from_user(dma_buf->cpu_addr,
-                       (void __user *)req.data,
-                       req.size)) {
-        return -EFAULT;
-    }
-
-    pr_info("Data size: %llu\n", req.size);
-    pr_info("Element 0: %llu\n", *((uint64_t *)dma_buf->cpu_addr));
-    pr_info("Element 1: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 1));
-    pr_info("Element 2: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 2));
-    pr_info("Element 3: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 3));
-
-    return 0;
-}
-*/
-
 static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
 {
     struct mjp_sub_desc *ring_base = mjp_queue_get_sub_ring_base(mjp, 0);
@@ -117,17 +81,17 @@ static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
     return 0;
 }
 
-static int mjp_submit_job(struct mjp_accel *mjp)
+static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
-
-    desc.job_id = alloc_job_id();
+    struct mjp_user_job job;
     
-    if (mjp_queue_push(mjp, &desc)) {
-        return 1; // error
+    if (copy_from_user(&job, (void __user *)arg, sizeof(job))) {
+        return -EFAULT;
     }
 
     desc.job_id = alloc_job_id();
+    desc.job = job;
     
     if (mjp_queue_push(mjp, &desc)) {
         return 1; // error
@@ -168,12 +132,9 @@ static long accel_ioctl(struct file *file,
         case MJP_IOC_PING:
             pr_info("mjp_accel: ioctl called\n");
             return 0;
-        case MJP_IOC_COPY:
-            pr_info("mjp_accel: old ioctl no longer in use\n");
-            return 0;
         case MJP_IOC_QUEUE_TEST:
             pr_info("mjp_accel: testing queue\n");
-            return mjp_submit_job(mjp);
+            return mjp_submit_job(mjp, arg);
         default:
             return -ENOTTY;
     }

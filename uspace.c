@@ -4,9 +4,7 @@
 #include <sys/ioctl.h>
 #include <stdint.h>
 
-#include "accelerator.h"
-
-static uint64_t buffer[4];
+#include "include/hw.h"
 
 int main(void)
 {
@@ -19,22 +17,15 @@ int main(void)
     if (ioctl(fd, MJP_IOC_PING) < 0)
         perror("ioctl");
 
-    // fill the buffer
-    buffer[0] = 5;
-    buffer[1] = 6;
-    buffer[2] = 7;
-    buffer[3] = 8;
-
-    struct mjp_accel_user_data req_data = {
-        .data = &buffer[0],
-        .size = 4 * sizeof(uint64_t),
+    struct mjp_user_job job = {
+        .opcode = 1,
     };
 
     //if (ioctl(fd, MJP_IOC_COPY, &req_data)) {
     //    perror("copy data");
     //}
 
-    if (ioctl(fd, MJP_IOC_QUEUE_TEST)) {
+    if (ioctl(fd, MJP_IOC_QUEUE_TEST, &job)) {
         perror("queue test");
     }
 
