@@ -8,7 +8,6 @@
 #include <linux/pci.h>
 #include <linux/ioctl.h>
 
-#include "accelerator.h"
 #include "include/hw.h"
 
 static atomic64_t job_counter = ATOMIC64_INIT(0);
@@ -26,6 +25,7 @@ struct mjp_dma_buf {
 
 struct mjp_ring {
     struct mjp_dma_buf buf;
+    uint64_t size; // number of descriptors, not bytes
 };
 
 struct mjp_queue {
@@ -42,95 +42,128 @@ struct mjp_accel {
     struct mjp_queue *queues;
 };
 
-static struct mjp_cpl_desc *mjp_queue_get_cpl_ring_base(struct mjp_accel *mjp,
-                                                        int queue_id)
+static struct mjp_cpl_desc *mjp_cpl_ring_get_base_ptr(struct mjp_accel *mjp,
+                                                      int queue_id)
 {
     struct mjp_queue *queues = mjp->queues;
     return (struct mjp_cpl_desc *)queues[queue_id].cpl_ring.buf.cpu_addr;
 }
 
-static struct mjp_sub_desc *mjp_queue_get_sub_ring_base(struct mjp_accel *mjp,
-                                                        int queue_id)
+static struct mjp_sub_desc *mjp_sub_ring_get_base_ptr(struct mjp_accel *mjp,
+                                                      int queue_id)
 {
     struct mjp_queue *queues = mjp->queues;
     return (struct mjp_sub_desc *)queues[queue_id].sub_ring.buf.cpu_addr;
 }
 
-/* Data Operations */
 
-/*
-static int copy_data_from_uspace(unsigned long arg,
-                                 struct mjp_dma_buf *dma_buf)
+/* TODO:
+ * Only call this with the sub_ring lock.
+ */
+static uint32_t mjp_sub_ring_count_avail_slots(struct mjp_accel *mjp,
+                                               int queue_id)
 {
-    struct mjp_accel_user_data req;
-    
-    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) {
-        return -EFAULT;
-    }
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_PROD));
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_CONS));
 
-    if (req.size > dma_buf->size) {
-        pr_info("Data too big for buffer\n");
-        return -ENOMEM;
-    }
-
-    if (!access_ok((void __user *)req.data, req.size)) {
-        return -EFAULT;
-    }
-
-    if (copy_from_user(dma_buf->cpu_addr,
-                       (void __user *)req.data,
-                       req.size)) {
-        return -EFAULT;
-    }
-
-    pr_info("Data size: %llu\n", req.size);
-    pr_info("Element 0: %llu\n", *((uint64_t *)dma_buf->cpu_addr));
-    pr_info("Element 1: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 1));
-    pr_info("Element 2: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 2));
-    pr_info("Element 3: %llu\n", *((uint64_t *)dma_buf->cpu_addr + 3));
-
-    return 0;
-}
-*/
-
-static int mjp_queue_push(struct mjp_accel *mjp, struct mjp_sub_desc *job)
-{
-    struct mjp_sub_desc *ring_base = mjp_queue_get_sub_ring_base(mjp, 0);
-    struct mjp_sub_desc *desc;
-
-    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
-    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_CONS));
-
-    if (prod_idx - cons_idx == MJP_SUB_RING_SIZE) {
-        return 1; // error - ring full, drop job request
-    }
-
-    desc = &ring_base[prod_idx % MJP_SUB_RING_SIZE];
-
-    memcpy(desc, job, sizeof(struct mjp_sub_desc));
-
-    pr_info("Submitted job: job_id: %llu\n", job->job_id);
-
-    prod_idx++;
-    iowrite32(prod_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_PROD));
-
-    return 0;
+    return MJP_SUB_RING_SIZE - (prod_idx - cons_idx);
 }
 
-static int mjp_submit_job(struct mjp_accel *mjp)
+/* Fills the submission ring with the provided job descriptors, in the order
+ * provided.
+ *
+ * Returns the number of jobs actually submitted.
+ *
+ * TODO:
+ * Only call this with the sub_ring lock.
+ */
+static u32 mjp_sub_ring_fill(struct mjp_accel *mjp,
+                             int queue_id,
+                             struct mjp_sub_desc *jobs,
+                             int count)
+{
+    struct mjp_sub_desc *ring_base;
+    struct mjp_sub_desc *dest;
+    struct mjp_sub_desc *src;
+    u32 filled = 0;
+
+    uint32_t available = mjp_sub_ring_count_avail_slots(mjp, queue_id);
+    ring_base = mjp_sub_ring_get_base_ptr(mjp, queue_id);
+
+    if (!available) {
+        return filled; // ring full, return 0
+    }
+
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(queue_id,
+                                                       MJP_REG_SUB_PROD));
+
+    while ((filled < count) && (filled < available)) {
+        src  = &jobs[filled];
+        dest = &ring_base[(prod_idx + filled) % MJP_SUB_RING_SIZE];
+
+        memcpy(dest, src, sizeof(struct mjp_sub_desc));
+
+        pr_info("Submitted job: job_id: %llu\n", dest->job_id);
+
+        filled++;
+    }
+
+    prod_idx = prod_idx + filled;
+    iowrite32(prod_idx, mjp->regs + MJP_Q_REG(queue_id, MJP_REG_SUB_PROD));
+
+    return filled;
+}
+
+
+/* Callback for draining the completion ring when the queue receives an
+ * interrupt.
+ *
+ * TODO:
+ * Spin until the the cpl_ring lock is acquired.
+ */
+static irqreturn_t mjp_cpl_ring_drain(int irq, void *dev_id)
+{
+    struct mjp_accel *mjp = dev_id;
+
+    struct mjp_cpl_desc *ring_base;
+    struct mjp_cpl_desc *desc;
+
+    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
+    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    ring_base = mjp_cpl_ring_get_base_ptr(mjp, 0);
+
+    while (cons_idx != prod_idx) {
+        desc = &ring_base[cons_idx % MJP_CPL_RING_SIZE];
+        pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
+        pr_info("Received completed job: job_id: %llu\n", desc->job_id);
+        cons_idx++;
+    }
+
+    iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
+
+    return IRQ_HANDLED;
+}
+
+static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
-
-    desc.job_id = alloc_job_id();
     
-    if (mjp_queue_push(mjp, &desc)) {
-        return 1; // error
+    if (copy_from_user(&desc.job,
+                       (void __user *)arg,
+                       sizeof(struct mjp_user_job))) {
+        return -EFAULT;
     }
-
     desc.job_id = alloc_job_id();
     
-    if (mjp_queue_push(mjp, &desc)) {
-        return 1; // error
+    /* TODO:
+     * Loop through all the rings and keep attempting to fill the sub rings
+     * until the job is successfully submitted.
+     */
+    if (!mjp_sub_ring_fill(mjp, 0, &desc, 1)) {
+        return 1;
     }
 
     iowrite32(1, mjp->regs + MJP_Q_REG(0, MJP_REG_SUB_DOORBELL));
@@ -168,12 +201,9 @@ static long accel_ioctl(struct file *file,
         case MJP_IOC_PING:
             pr_info("mjp_accel: ioctl called\n");
             return 0;
-        case MJP_IOC_COPY:
-            pr_info("mjp_accel: old ioctl no longer in use\n");
-            return 0;
         case MJP_IOC_QUEUE_TEST:
             pr_info("mjp_accel: testing queue\n");
-            return mjp_submit_job(mjp);
+            return mjp_submit_job(mjp, arg);
         default:
             return -ENOTTY;
     }
@@ -244,30 +274,6 @@ static struct mjp_accel *mjp_pci_setup(struct pci_dev *pdev)
     return mjp;
 }
 
-static irqreturn_t mjp_queue_flush_cpl_ring(int irq, void *dev_id)
-{
-    struct mjp_accel *mjp = dev_id;
-
-    struct mjp_cpl_desc *ring_base;
-    struct mjp_cpl_desc *desc;
-
-    uint32_t prod_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
-    uint32_t cons_idx = ioread32(mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
-
-    ring_base = mjp_queue_get_cpl_ring_base(mjp, 0);
-
-    while (cons_idx != prod_idx) {
-        desc = &ring_base[cons_idx % MJP_CPL_RING_SIZE];
-        pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
-        pr_info("Received completed job: job_id: %llu\n", desc->job_id);
-        cons_idx++;
-    }
-
-    iowrite32(cons_idx, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
-
-    return IRQ_HANDLED;
-}
-
 static int mjp_msix_setup(struct pci_dev *pdev, struct mjp_accel *mjp)
 {
     int res, nvecs;
@@ -279,7 +285,7 @@ static int mjp_msix_setup(struct pci_dev *pdev, struct mjp_accel *mjp)
 
     res = devm_request_irq(&pdev->dev,
                            pci_irq_vector(pdev, 0),
-                           mjp_queue_flush_cpl_ring,
+                           mjp_cpl_ring_drain,
                            0,
                            "mjp-accel",
                            mjp);
@@ -378,12 +384,14 @@ static int mjp_queues_setup(struct mjp_accel *mjp)
                              sub_ring_bytes)) != 0) {
         goto err_allocating_sub_ring;
     }
+    queues[0].sub_ring.size = MJP_SUB_RING_SIZE;
 
     if ((res = mjp_dma_alloc(mjp->pdev,
                              &queues[0].cpl_ring.buf,
                              cpl_ring_bytes)) != 0) {
         goto err_allocating_cpl_ring;
     }
+    queues[0].cpl_ring.size = MJP_CPL_RING_SIZE;
 
     return 0;
 
