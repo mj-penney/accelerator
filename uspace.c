@@ -30,11 +30,11 @@ int main(void)
         .size = 4 * sizeof(uint64_t),
     };
 
-    if (ioctl(fd, MJP_IOC_COPY, &req_data)) {
-        perror("copy data");
-    }
+    //if (ioctl(fd, MJP_IOC_COPY, &req_data)) {
+    //    perror("copy data");
+    //}
 
-    if (ioctl(fd, MJP_IOC_QUEUE_TEST, &req_data)) {
+    if (ioctl(fd, MJP_IOC_QUEUE_TEST)) {
         perror("queue test");
     }
 
