@@ -94,6 +94,8 @@ typedef enum {
 
 /* This is what userspace submits when it wants the accelerator to do a job */
 
+typedef uint32_t mjp_dbuf_handle;
+
 struct mjp_user_job {
 
     /* Handles for the input buffer containing the data that userspace wants to
@@ -124,5 +126,7 @@ struct mjp_cpl_desc {
 #define MJP_IOC_MAGIC 'm'
 #define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
 #define MJP_IOC_QUEUE_TEST  _IOW(MJP_IOC_MAGIC, 2, struct mjp_user_job)
+#define MJP_IOC_ALLOC_BUFFER _IO(MJP_IOC_MAGIC, 3)
+#define MJP_IOC_FREE_BUFFER _IOW(MJP_IOC_MAGIC, 4, mjp_dbuf_handle)
 
 #endif

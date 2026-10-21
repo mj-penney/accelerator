@@ -29,6 +29,14 @@ int main(void)
         perror("queue test");
     }
 
+    if (ioctl(fd, MJP_IOC_ALLOC_BUFFER)) {
+        perror("allocating dbuf");
+    }
+
+    if (ioctl(fd, MJP_IOC_FREE_BUFFER, 0)) {
+        perror("allocating dbuf");
+    }
+
     close(fd);
     return 0;
 }

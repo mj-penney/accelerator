@@ -17,6 +17,39 @@ static u64 alloc_job_id(void)
     return (u64)atomic64_inc_return(&job_counter);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// DMA DATA BUFFER
+
+#define MJP_DBUF_FREE         0U
+#define MJP_DBUF_ALLOCATED    1U
+//#define MJP_DBUF_PENDING_FREE 2U
+typedef uint16_t mjp_dbuf_alloc_status;
+
+#define MJP_DBUF_IDLE      1U
+#define MJP_DBUF_IN_FLIGHT 0U
+typedef uint16_t mjp_dbuf_dev_status;
+
+struct mjp_dbuf {
+    void                  *cpu_addr;
+    dma_addr_t            dma_addr;
+    u64                   size_bytes;
+    u64                   used_bytes;
+    mjp_dbuf_handle       handle;
+    mjp_dbuf_alloc_status alloc_status;
+    mjp_dbuf_dev_status   dev_status;
+};
+
+#define MJP_DBUF_POOL_SIZE 16
+#define MJP_DBUF_SIZE_BYTES 1024
+
+struct mjp_dbuf_pool {
+    struct mjp_dbuf *pool;
+    u64 size;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+// DMA QUEUE
+
 struct mjp_dma_buf {
     void *cpu_addr;
     dma_addr_t dma_addr;
@@ -33,6 +66,9 @@ struct mjp_queue {
     struct mjp_ring cpl_ring;
 };
 
+///////////////////////////////////////////////////////////////////////////////
+// DEVICE
+
 struct mjp_accel {
     struct pci_dev *pdev;
     void __iomem *regs;
@@ -40,7 +76,108 @@ struct mjp_accel {
     dev_t devt;
 
     struct mjp_queue *queues;
+
+    struct mjp_dbuf_pool dbuf_pool;
 };
+
+///////////////////////////////////////////////////////////////////////////////
+// CRUDE DMA DATA BUFFER ALLOCATOR CODE
+
+/* Get a DMA data buffer given a handle.
+ * Users will only specify buffers by their handles, so use this to get the
+ * buffer before submitting a job.
+ *
+ * Don't need a lock for this.
+ */
+static struct mjp_dbuf *mjp_get_dbuf(struct mjp_accel *mjp,
+                                     mjp_dbuf_handle handle)
+{
+    u64 i;
+    struct mjp_dbuf *dbuf;
+
+    for (i = 0; i < mjp->dbuf_pool.size; i++) {
+        dbuf = &mjp->dbuf_pool.pool[i];
+        if (dbuf->handle == handle) {
+            return dbuf;
+        }
+    }
+
+    return NULL;
+}
+
+/* A data buffer is only free if it is marked as free and not part of an
+ * in-flight job.
+ */
+static bool mjp_dbuf_is_free(struct mjp_dbuf *dbuf)
+{
+    return dbuf->alloc_status == MJP_DBUF_FREE 
+        && dbuf->dev_status == MJP_DBUF_IDLE;
+}
+
+/* Get a free dbuf to give to the user.
+ *
+ * TODO:
+ * Acquire the 'dbuf_alloc' lock for the dbuf array before allocating the
+ * buffer to avoid allocating the same buffer twice.
+ */
+static struct mjp_dbuf *mjp_alloc_dbuf(struct mjp_accel *mjp)
+{
+    u64 i;
+    struct mjp_dbuf *dbuf;
+
+    // acquire lock here
+
+    for (i = 0; i < mjp->dbuf_pool.size; i++) {
+        dbuf = &mjp->dbuf_pool.pool[i];
+
+        if (mjp_dbuf_is_free(dbuf)) {
+            dbuf->alloc_status = MJP_DBUF_ALLOCATED;
+            return dbuf;
+        }
+    }
+
+    // release lock here
+
+    return NULL;
+}
+
+/* Do I need a lock on the dbuf to free it?
+ * I think so, to avoid un-mmapping the buffer twice etc.
+ * I believe I want to synchronise with userspace here, in case it tries access
+ * the buffer during the freeing process.
+ */
+static void mjp_free_dbuf(struct mjp_accel *mjp, mjp_dbuf_handle handle)
+{
+    struct mjp_dbuf *dbuf = mjp_get_dbuf(mjp, handle);
+
+    dbuf->alloc_status = MJP_DBUF_FREE;
+    // also un-mmap the buffer from userspace
+}
+
+static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp)
+{
+    struct mjp_dbuf *dbuf = mjp_alloc_dbuf(mjp);
+
+    if (!dbuf) {
+        pr_info("Couldn't allocate data buffer\n");
+        return -ENOMEM;
+    }
+
+    pr_info("Allocated dbuf with handle %u\n", dbuf->handle);
+    return 0;
+}
+
+static long mjp_ioc_free_dbuf(struct mjp_accel *mjp, unsigned long arg)
+{
+    mjp_dbuf_handle handle = (mjp_dbuf_handle)arg;
+    mjp_free_dbuf(mjp, handle);
+
+    pr_info("Freed dbuf with handle %u\n", handle);
+    return 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// MAIN DRIVER CODE
 
 static struct mjp_cpl_desc *mjp_cpl_ring_get_base_ptr(struct mjp_accel *mjp,
                                                       int queue_id)
@@ -204,6 +341,10 @@ static long accel_ioctl(struct file *file,
         case MJP_IOC_QUEUE_TEST:
             pr_info("mjp_accel: testing queue\n");
             return mjp_submit_job(mjp, arg);
+        case MJP_IOC_ALLOC_BUFFER:
+            return mjp_ioc_alloc_dbuf(mjp);
+        case MJP_IOC_FREE_BUFFER:
+            return mjp_ioc_free_dbuf(mjp, arg);
         default:
             return -ENOTTY;
     }
@@ -365,6 +506,75 @@ static int mjp_device_program_regs(struct mjp_accel *mjp)
     return 0;
 }
 
+static int mjp_dbuf_pool_setup(struct mjp_accel *mjp)
+{
+    struct mjp_dbuf_pool *pool = &mjp->dbuf_pool;
+
+    pool->size = MJP_DBUF_POOL_SIZE;
+    pool->pool = kcalloc(pool->size, sizeof(struct mjp_dbuf), GFP_KERNEL);
+
+    if (!pool->pool) {
+        return -ENOMEM;
+    }
+
+    struct mjp_dbuf *dbuf;
+    u64 i = 0;
+    while (i < pool->size) {
+        dbuf = &pool->pool[i];
+
+        dbuf->cpu_addr = dma_alloc_coherent(&mjp->pdev->dev,
+                                            MJP_DBUF_SIZE_BYTES,
+                                            &dbuf->dma_addr,
+                                            GFP_KERNEL);
+        if (!dbuf->cpu_addr) {
+            goto err_allocating_dbuf;
+        }
+
+        dbuf->handle = i;
+        dbuf->size_bytes = MJP_DBUF_SIZE_BYTES;
+        dbuf->alloc_status = MJP_DBUF_FREE;
+        dbuf->dev_status = MJP_DBUF_IDLE;
+
+        i++;
+    }
+
+    return 0;
+
+err_allocating_dbuf:
+
+    while (i) {
+        dbuf = &pool->pool[i - 1];
+        dma_free_coherent(&mjp->pdev->dev,
+                          dbuf->size_bytes,
+                          dbuf->cpu_addr,
+                          dbuf->dma_addr);
+        i--;
+    }
+
+    kfree(pool->pool);
+
+    return -ENOMEM;
+}
+
+static void mjp_dbuf_pool_cleanup(struct mjp_accel *mjp)
+{
+    struct mjp_dbuf_pool *pool = &mjp->dbuf_pool;
+
+    struct mjp_dbuf *dbuf;
+    u64 i = 0;
+    while (i < pool->size) {
+        dbuf = &pool->pool[i];
+        dma_free_coherent(&mjp->pdev->dev,
+                          dbuf->size_bytes,
+                          dbuf->cpu_addr,
+                          dbuf->dma_addr);
+
+        i++;
+    }
+
+    kfree(pool->pool);
+}
+
 static int mjp_queues_setup(struct mjp_accel *mjp)
 {
     int res;
@@ -466,6 +676,10 @@ static int mjp_probe(struct pci_dev *pdev,
         return res;
     }
 
+    if ((res = mjp_dbuf_pool_setup(mjp)) != 0) {
+        return res;
+    }
+
     if ((res = mjp_cdev_setup(mjp, pdev)) != 0) {
         goto err_setting_up_cdev;
     }
@@ -488,6 +702,7 @@ err_enabling_device:
 err_programming_device_regs:
 err_resetting_device:
 err_setting_up_cdev:
+    mjp_dbuf_pool_cleanup(mjp);
     mjp_queues_cleanup(mjp);
 
     return res;
@@ -497,6 +712,7 @@ static void mjp_remove(struct pci_dev *pdev)
 {
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
+    mjp_dbuf_pool_cleanup(mjp);
     mjp_queues_cleanup(mjp);
     mjp_device_reset(mjp);
     device_destroy(mjp_accel_class, mjp->devt);
