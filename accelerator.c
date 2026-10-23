@@ -341,6 +341,26 @@ static int accel_release(struct inode *inode, struct file *file)
     return 0;
 }
 
+static int mjp_mmap(struct file *file, struct vm_area_struct *vma)
+{
+    struct mjp_accel *mjp = file->private_data;
+    mjp_dbuf_handle handle = vma->vm_pgoff;
+    struct mjp_dbuf *dbuf = mjp_get_dbuf(mjp, handle);
+
+    vma->vm_pgoff = 0;
+    
+    int ret = dma_mmap_coherent(&mjp->pdev->dev,
+                                vma,
+                                dbuf->cpu_addr,
+                                dbuf->dma_addr,
+                                dbuf->size_bytes);
+    
+    if (ret) {
+        return ret;
+    }
+    return 0;
+}
+
 static long accel_ioctl(struct file *file,
                         unsigned int cmd,
                         unsigned long arg)
@@ -368,6 +388,7 @@ static const struct file_operations accel_fops = {
     .open = accel_open,
     .release = accel_release,
     .unlocked_ioctl = accel_ioctl,
+    .mmap = mjp_mmap,
 };
 
 /* DEVICE SETUP */
