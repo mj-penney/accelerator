@@ -154,13 +154,26 @@ static void mjp_free_dbuf(struct mjp_accel *mjp, mjp_dbuf_handle handle)
     // also un-mmap the buffer from userspace
 }
 
-static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp)
+static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp, unsigned long arg)
 {
-    struct mjp_dbuf *dbuf = mjp_alloc_dbuf(mjp);
+    struct mjp_ioctl_alloc_buf req;
+    struct mjp_dbuf *dbuf;
+
+    if (copy_from_user(&req, (void __user *)arg, sizeof(struct mjp_ioctl_alloc_buf))) {
+        return -EFAULT;
+    }
+
+    dbuf = mjp_alloc_dbuf(mjp);
 
     if (!dbuf) {
         pr_info("Couldn't allocate data buffer\n");
         return -ENOMEM;
+    }
+
+    req.handle = dbuf->handle;
+
+    if (copy_to_user((void __user *)arg, &req, sizeof(struct mjp_ioctl_alloc_buf))) {
+        return -EFAULT;
     }
 
     pr_info("Allocated dbuf with handle %u\n", dbuf->handle);
@@ -342,7 +355,7 @@ static long accel_ioctl(struct file *file,
             pr_info("mjp_accel: testing queue\n");
             return mjp_submit_job(mjp, arg);
         case MJP_IOC_ALLOC_BUFFER:
-            return mjp_ioc_alloc_dbuf(mjp);
+            return mjp_ioc_alloc_dbuf(mjp, arg);
         case MJP_IOC_FREE_BUFFER:
             return mjp_ioc_free_dbuf(mjp, arg);
         default:

@@ -29,11 +29,17 @@ int main(void)
         perror("queue test");
     }
 
-    if (ioctl(fd, MJP_IOC_ALLOC_BUFFER)) {
+    struct mjp_ioctl_alloc_buf req = {
+        .requested_size_bytes = 256,
+    };
+
+    if (ioctl(fd, MJP_IOC_ALLOC_BUFFER, &req)) {
         perror("allocating dbuf");
     }
 
-    if (ioctl(fd, MJP_IOC_FREE_BUFFER, 0)) {
+    printf("Userspace: buffer handle: %u\n", req.handle);
+
+    if (ioctl(fd, MJP_IOC_FREE_BUFFER, req.handle)) {
         perror("allocating dbuf");
     }
 
