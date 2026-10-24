@@ -96,24 +96,30 @@ typedef enum {
 
 typedef uint32_t mjp_dbuf_handle;
 
-struct mjp_user_job {
+/* User sends this in an ioctl to request the execution of a job. */
+struct mjp_job_exec_req {
 
     /* Handles for the input buffer containing the data that userspace wants to
      * process, and the output buffer where the result will be written.
      * These are DMA buffers allocated in the kernel and mmap'd into the user's
      * address space.
      */
-    mjp_dbuf_handle input_handle;
-    mjp_dbuf_handle output_handle;
+    mjp_dbuf_handle in_handle;
+    mjp_dbuf_handle out_handle;
 
     uint32_t opcode;
+
+    uint64_t exec_id; // kernel writes this back to userspace
 };
 
 /* submission/completion descriptors */
 
 struct mjp_sub_desc {
-    uint64_t job_id;
-    struct mjp_user_job job;
+    uint64_t                job_id;
+    mjp_dbuf_handle         in_handle;
+    mjp_dbuf_handle         out_handle;
+    uint32_t                opcode;
+    //struct mjp_job_exec_req job;
 };
 
 struct mjp_cpl_desc {
@@ -130,7 +136,7 @@ struct mjp_ioctl_alloc_buf {
 
 #define MJP_IOC_MAGIC 'm'
 #define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
-#define MJP_IOC_QUEUE_TEST  _IOW(MJP_IOC_MAGIC, 2, struct mjp_user_job)
+#define MJP_IOC_QUEUE_TEST  _IOW(MJP_IOC_MAGIC, 2, struct mjp_job_exec_req)
 #define MJP_IOC_ALLOC_BUFFER _IOW(MJP_IOC_MAGIC, 3, struct mjp_ioctl_alloc_buf)
 #define MJP_IOC_FREE_BUFFER _IOW(MJP_IOC_MAGIC, 4, mjp_dbuf_handle)
 

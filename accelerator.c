@@ -166,7 +166,6 @@ static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp, unsigned long arg)
     dbuf = mjp_alloc_dbuf(mjp);
 
     if (!dbuf) {
-        pr_info("Couldn't allocate data buffer\n");
         return -ENOMEM;
     }
 
@@ -176,7 +175,6 @@ static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp, unsigned long arg)
         return -EFAULT;
     }
 
-    pr_info("Allocated dbuf with handle %u\n", dbuf->handle);
     return 0;
 }
 
@@ -185,7 +183,6 @@ static long mjp_ioc_free_dbuf(struct mjp_accel *mjp, unsigned long arg)
     mjp_dbuf_handle handle = (mjp_dbuf_handle)arg;
     mjp_free_dbuf(mjp, handle);
 
-    pr_info("Freed dbuf with handle %u\n", handle);
     return 0;
 }
 
@@ -300,13 +297,23 @@ static irqreturn_t mjp_cpl_ring_drain(int irq, void *dev_id)
 static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
+    struct mjp_job_exec_req req;
     
-    if (copy_from_user(&desc.job,
+    if (copy_from_user(&req,
                        (void __user *)arg,
-                       sizeof(struct mjp_user_job))) {
+                       sizeof(struct mjp_job_exec_req))) {
         return -EFAULT;
     }
+
     desc.job_id = alloc_job_id();
+    desc.in_handle = req.in_handle;
+    desc.out_handle = req.out_handle;
+    desc.opcode = req.opcode;
+
+    req.exec_id = desc.job_id;
+    if (copy_to_user((void __user *)arg, &req, sizeof(struct mjp_job_exec_req))) {
+        return -EFAULT;
+    }
     
     /* TODO:
      * Loop through all the rings and keep attempting to fill the sub rings
@@ -369,10 +376,8 @@ static long accel_ioctl(struct file *file,
 
     switch (cmd) {
         case MJP_IOC_PING:
-            pr_info("mjp_accel: ioctl called\n");
             return 0;
         case MJP_IOC_QUEUE_TEST:
-            pr_info("mjp_accel: testing queue\n");
             return mjp_submit_job(mjp, arg);
         case MJP_IOC_ALLOC_BUFFER:
             return mjp_ioc_alloc_dbuf(mjp, arg);
@@ -534,8 +539,6 @@ static int mjp_device_program_regs(struct mjp_accel *mjp)
               mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_BASE_HI));
     iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_PROD));
     iowrite32(0, mjp->regs + MJP_Q_REG(0, MJP_REG_CPL_CONS));
-
-    pr_info("Sub ring base DMA addr: 0x%llx\n", (uint64_t)sub_ring->buf.dma_addr);
 
     return 0;
 }

@@ -70,6 +70,7 @@ struct mjp_job {
     struct mjp_float_buf *in_buf;
     struct mjp_float_buf *out_buf;
     uint32_t opcode;
+    uint64_t exec_id; // kernel writes this back to userspace
 };
 
 static struct mjp_job *mjp_job_alloc(struct mjp_accel *mjp)
@@ -81,6 +82,7 @@ static struct mjp_job *mjp_job_alloc(struct mjp_accel *mjp)
 
     job->in_buf = mjp_buf_alloc(mjp, 256);
     job->out_buf = mjp_buf_alloc(mjp, 256);
+    job->opcode = 1;
 
     if (!job->in_buf || !job->out_buf) {
         return NULL;
@@ -98,15 +100,19 @@ static void mjp_job_free(struct mjp_accel *mjp, struct mjp_job *job)
 
 static int mjp_job_exec(struct mjp_accel *mjp, struct mjp_job *job)
 {
-    struct mjp_user_job job_req = {
-        .input_handle = job->in_buf->handle,
-        .output_handle = job->out_buf->handle,
+    struct mjp_job_exec_req req = {
+        .in_handle = job->in_buf->handle,
+        .out_handle = job->out_buf->handle,
+        .opcode = job->opcode,
     };
 
-    if (ioctl(mjp->fd, MJP_IOC_QUEUE_TEST, &job_req)) {
+    if (ioctl(mjp->fd, MJP_IOC_QUEUE_TEST, &req)) {
         perror("queue test");
         return -1;
     }
+    // get back the execution id that the kernel assigned
+    job->exec_id = req.exec_id;
+
     return 0;
 }
 
@@ -128,10 +134,12 @@ int main(void)
     if (mjp_job_exec(&mjp, job1)) {
         fprintf(stderr, "Error in job1 execution\n");
     }
+    printf("Submitted job1 with execution ID %u\n", job1->exec_id);
 
     if (mjp_job_exec(&mjp, job2)) {
         fprintf(stderr, "Error in job2 execution\n");
     }
+    printf("Submitted job2 with execution ID %u\n", job2->exec_id);
 
     mjp_job_free(&mjp, job1);
     mjp_job_free(&mjp, job2);
