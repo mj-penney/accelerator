@@ -10,7 +10,8 @@
 struct mjp_float_buf {
     mjp_dbuf_handle handle;
     float *buf;
-    uint64_t len; // elements
+    uint64_t size; // bytes
+    uint64_t len;  // elements
 };
 
 static struct mjp_float_buf mjp_alloc(int fd, uint64_t size_bytes)
@@ -36,6 +37,7 @@ static struct mjp_float_buf mjp_alloc(int fd, uint64_t size_bytes)
     struct mjp_float_buf buf = {
         .handle = req.handle,
         .buf = (float *)ptr,
+        .size = size_bytes,
         .len = size_bytes / sizeof(float),
     };
 
@@ -44,6 +46,10 @@ static struct mjp_float_buf mjp_alloc(int fd, uint64_t size_bytes)
 
 void mjp_free(int fd, struct mjp_float_buf *buf)
 {
+    if (munmap(buf->buf, buf->size) < 0) {
+        perror("munmap");
+    }
+
     if (ioctl(fd, MJP_IOC_FREE_BUFFER, buf->handle)) {
         perror("allocating dbuf");
     }
