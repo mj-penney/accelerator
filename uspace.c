@@ -4,8 +4,13 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "include/hw.h"
+
+struct mjp_accel {
+    const int fd;
+};
 
 struct mjp_float_buf {
     mjp_dbuf_handle handle;
@@ -14,13 +19,19 @@ struct mjp_float_buf {
     uint64_t len;  // elements
 };
 
-static struct mjp_float_buf mjp_alloc(int fd, uint64_t size_bytes)
+static struct mjp_float_buf *mjp_buf_alloc(struct mjp_accel *mjp,
+                                           uint64_t size_bytes)
 {
+    struct mjp_float_buf *buf = malloc(sizeof(struct mjp_float_buf));
+    if (!buf) {
+        return NULL;
+    }
+
     struct mjp_ioctl_alloc_buf req = {
         .requested_size_bytes = size_bytes,
     };
 
-    if (ioctl(fd, MJP_IOC_ALLOC_BUFFER, &req)) {
+    if (ioctl(mjp->fd, MJP_IOC_ALLOC_BUFFER, &req)) {
         perror("allocating dbuf");
     }
 
@@ -28,64 +39,103 @@ static struct mjp_float_buf mjp_alloc(int fd, uint64_t size_bytes)
 
     void *ptr = mmap(NULL, size_bytes,
                      PROT_READ | PROT_WRITE,
-                     MAP_SHARED, fd,
+                     MAP_SHARED, mjp->fd,
                      (off_t)req.handle * getpagesize());
 
     if (ptr == MAP_FAILED)
         perror("mmap");
 
-    struct mjp_float_buf buf = {
-        .handle = req.handle,
-        .buf = (float *)ptr,
-        .size = size_bytes,
-        .len = size_bytes / sizeof(float),
-    };
+    buf->handle = req.handle;
+    buf->buf = (float *)ptr;
+    buf->size = size_bytes;
+    buf->len = size_bytes / sizeof(float);
 
     return buf;
 }
 
-void mjp_free(int fd, struct mjp_float_buf *buf)
+static void mjp_buf_free(struct mjp_accel *mjp, struct mjp_float_buf *buf)
 {
     if (munmap(buf->buf, buf->size) < 0) {
         perror("munmap");
     }
 
-    if (ioctl(fd, MJP_IOC_FREE_BUFFER, buf->handle)) {
+    if (ioctl(mjp->fd, MJP_IOC_FREE_BUFFER, buf->handle)) {
         perror("allocating dbuf");
     }
+
+    free(buf);
+}
+
+struct mjp_job {
+    struct mjp_float_buf *in_buf;
+    struct mjp_float_buf *out_buf;
+    uint32_t opcode;
+};
+
+static struct mjp_job *mjp_job_alloc(struct mjp_accel *mjp)
+{
+    struct mjp_job *job = malloc(sizeof(struct mjp_job));
+    if (!job) {
+        return NULL;
+    }
+
+    job->in_buf = mjp_buf_alloc(mjp, 256);
+    job->out_buf = mjp_buf_alloc(mjp, 256);
+
+    if (!job->in_buf || !job->out_buf) {
+        return NULL;
+    }
+
+    return job;
+}
+
+static void mjp_job_free(struct mjp_accel *mjp, struct mjp_job *job)
+{
+    mjp_buf_free(mjp, job->in_buf);
+    mjp_buf_free(mjp, job->out_buf);
+    free(job);
+}
+
+static int mjp_job_exec(struct mjp_accel *mjp, struct mjp_job *job)
+{
+    struct mjp_user_job job_req = {
+        .input_handle = job->in_buf->handle,
+        .output_handle = job->out_buf->handle,
+    };
+
+    if (ioctl(mjp->fd, MJP_IOC_QUEUE_TEST, &job_req)) {
+        perror("queue test");
+        return -1;
+    }
+    return 0;
 }
 
 int main(void)
 {
+
     int fd = open("/dev/mjp_accel", O_RDWR);
     if (fd < 0) {
         perror("open");
         return 1;
     }
-
-    if (ioctl(fd, MJP_IOC_PING) < 0)
-        perror("ioctl");
-
-    struct mjp_user_job job = {
-        .opcode = 1,
+    struct mjp_accel mjp = {
+        .fd = fd,
     };
 
-    //if (ioctl(fd, MJP_IOC_COPY, &req_data)) {
-    //    perror("copy data");
-    //}
+    struct mjp_job *job1 = mjp_job_alloc(&mjp);
+    struct mjp_job *job2 = mjp_job_alloc(&mjp);
 
-    if (ioctl(fd, MJP_IOC_QUEUE_TEST, &job)) {
-        perror("queue test");
+    if (mjp_job_exec(&mjp, job1)) {
+        fprintf(stderr, "Error in job1 execution\n");
     }
 
-    struct mjp_float_buf buf = mjp_alloc(fd, 256);
+    if (mjp_job_exec(&mjp, job2)) {
+        fprintf(stderr, "Error in job2 execution\n");
+    }
 
-    buf.buf[0] = 5.3;
-    buf.buf[1] = 165.2340;
-    buf.buf[2] = 72.6666667;
+    mjp_job_free(&mjp, job1);
+    mjp_job_free(&mjp, job2);
 
-    mjp_free(fd, &buf);
-
-    close(fd);
+    close(mjp.fd);
     return 0;
 }

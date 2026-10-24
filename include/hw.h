@@ -103,8 +103,8 @@ struct mjp_user_job {
      * These are DMA buffers allocated in the kernel and mmap'd into the user's
      * address space.
      */
-    uint32_t input_handle;
-    uint32_t output_handle;
+    mjp_dbuf_handle input_handle;
+    mjp_dbuf_handle output_handle;
 
     uint32_t opcode;
 };
