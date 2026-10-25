@@ -140,6 +140,8 @@ int main(void)
     struct mjp_job *job1 = mjp_job_init(&mjp);
     struct mjp_job *job2 = mjp_job_init(&mjp);
 
+    job1->in_buf->buf[0] = 7.0;
+
     if (mjp_job_submit(&mjp, job1)) {
         fprintf(stderr, "Error in job1 submission\n");
     }
@@ -156,6 +158,8 @@ int main(void)
     if (mjp_job_complete(&mjp, job1)) {
         fprintf(stderr, "Error in job1 completion\n");
     }
+
+    printf("Job 1 result: %f\n", job1->out_buf->buf[0]);
 
     mjp_job_cleanup(&mjp, job1);
     mjp_job_cleanup(&mjp, job2);
