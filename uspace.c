@@ -106,7 +106,7 @@ static int mjp_job_submit(struct mjp_accel *mjp, struct mjp_job *job)
         .opcode = job->opcode,
     };
 
-    if (ioctl(mjp->fd, MJP_IOC_QUEUE_TEST, &req)) {
+    if (ioctl(mjp->fd, MJP_IOC_JOB_SUBMIT, &req)) {
         perror("queue test");
         return -1;
     }

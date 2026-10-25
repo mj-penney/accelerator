@@ -135,8 +135,9 @@ struct mjp_ioctl_alloc_buf {
 
 #define MJP_IOC_MAGIC 'm'
 #define MJP_IOC_PING  _IO(MJP_IOC_MAGIC, 0)
-#define MJP_IOC_QUEUE_TEST  _IOW(MJP_IOC_MAGIC, 2, struct mjp_job_sub_req)
-#define MJP_IOC_ALLOC_BUFFER _IOW(MJP_IOC_MAGIC, 3, struct mjp_ioctl_alloc_buf)
-#define MJP_IOC_FREE_BUFFER _IOW(MJP_IOC_MAGIC, 4, mjp_dbuf_handle)
+#define MJP_IOC_JOB_SUBMIT  _IOW(MJP_IOC_MAGIC, 2, struct mjp_job_sub_req)
+#define MJP_IOC_JOB_COMPLETE _IOW(MJP_IOC_MAGIC, 3, struct mjp_job_sub_req)
+#define MJP_IOC_ALLOC_BUFFER _IOW(MJP_IOC_MAGIC, 4, struct mjp_ioctl_alloc_buf)
+#define MJP_IOC_FREE_BUFFER _IOW(MJP_IOC_MAGIC, 5, mjp_dbuf_handle)
 
 #endif

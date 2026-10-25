@@ -443,7 +443,7 @@ static long accel_ioctl(struct file *file,
     switch (cmd) {
         case MJP_IOC_PING:
             return 0;
-        case MJP_IOC_QUEUE_TEST:
+        case MJP_IOC_JOB_SUBMIT:
             return mjp_submit_job(mjp, arg);
         case MJP_IOC_ALLOC_BUFFER:
             return mjp_ioc_alloc_dbuf(mjp, arg);
