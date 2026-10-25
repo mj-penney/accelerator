@@ -116,8 +116,15 @@ struct mjp_job_sub_req {
 
 struct mjp_sub_desc {
     uint64_t                job_id;
+
     mjp_dbuf_handle         in_handle;
+    uint64_t                in_size;
+    uint64_t                in_addr; // this is the dma addr
+
     mjp_dbuf_handle         out_handle;
+    uint64_t                out_size;
+    uint64_t                out_addr; // this is the dma addr
+
     uint32_t                opcode;
 };
 

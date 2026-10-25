@@ -360,6 +360,8 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
     struct mjp_job_sub_req req;
+    struct mjp_dbuf *in_dbuf;
+    struct mjp_dbuf *out_dbuf;
     
     if (copy_from_user(&req,
                        (void __user *)arg,
@@ -367,9 +369,19 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
         return -EFAULT;
     }
 
+    in_dbuf = mjp_get_dbuf(mjp, req.in_handle);
+    out_dbuf = mjp_get_dbuf(mjp, req.out_handle);
+
     desc.job_id = alloc_job_id();
+
     desc.in_handle = req.in_handle;
+    desc.in_size = in_dbuf->used_bytes;
+    desc.in_addr = (u64)in_dbuf->dma_addr;
+
     desc.out_handle = req.out_handle;
+    desc.out_size = out_dbuf->used_bytes;
+    desc.out_addr = (u64)out_dbuf->dma_addr;
+
     desc.opcode = req.opcode;
 
     req.job_id = desc.job_id;
