@@ -72,16 +72,16 @@ struct mjp_queue {
 ///////////////////////////////////////////////////////////////////////////////
 // DEVICE
 
-struct mjp_exec_tracker {
-    u64 exec_id;
+struct mjp_job_tracker {
+    u64 job_id;
     struct rhash_head node;
     struct completion done;
     int status;
 };
 
-static const struct rhashtable_params exec_tracker_params = {
-    .head_offset = offsetof(struct mjp_exec_tracker, node),
-    .key_offset = offsetof(struct mjp_exec_tracker, exec_id),
+static const struct rhashtable_params job_tracker_params = {
+    .head_offset = offsetof(struct mjp_job_tracker, node),
+    .key_offset = offsetof(struct mjp_job_tracker, job_id),
     .key_len = sizeof(u64),
 };
 
@@ -95,7 +95,7 @@ struct mjp_accel {
 
     struct mjp_dbuf_pool dbuf_pool;
 
-    struct rhashtable exec_tracker;
+    struct rhashtable job_tracker;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -207,21 +207,21 @@ static long mjp_ioc_free_dbuf(struct mjp_accel *mjp, unsigned long arg)
 ///////////////////////////////////////////////////////////////////////////////
 // MAIN DRIVER CODE
 
-static void mjp_exec_tracker_complete(struct mjp_accel *mjp,
-                                      struct mjp_cpl_desc *desc)
+static void mjp_job_tracker_complete(struct mjp_accel *mjp,
+                                     struct mjp_cpl_desc *desc)
 {
-    struct mjp_exec_tracker *exec;
+    struct mjp_job_tracker *job;
 
-    exec = rhashtable_lookup_fast(&mjp->exec_tracker,
+    job = rhashtable_lookup_fast(&mjp->job_tracker,
                                   &desc->job_id,
-                                  exec_tracker_params);
-    if (!exec) {
+                                  job_tracker_params);
+    if (!job) {
         return;
     }
 
     // TODO: get status from the completion descriptor
-    WRITE_ONCE(exec->status, 0);
-    complete_all(&exec->done);
+    WRITE_ONCE(job->status, 0);
+    complete_all(&job->done);
 }
 
 static struct mjp_cpl_desc *mjp_cpl_ring_get_base_ptr(struct mjp_accel *mjp,
@@ -319,7 +319,7 @@ static irqreturn_t mjp_cpl_ring_drain(int irq, void *dev_id)
 
     while (cons_idx != prod_idx) {
         desc = &ring_base[cons_idx % MJP_CPL_RING_SIZE];
-        mjp_exec_tracker_complete(mjp, desc);
+        mjp_job_tracker_complete(mjp, desc);
 
         pr_info("Cons: %u, prod: %u\n", cons_idx, prod_idx);
         pr_info("Received completed job: job_id: %llu\n", desc->job_id);
@@ -332,24 +332,24 @@ static irqreturn_t mjp_cpl_ring_drain(int irq, void *dev_id)
     return IRQ_HANDLED;
 }
 
-static int mjp_track_exec(struct mjp_accel *mjp, struct mjp_sub_desc *desc)
+static int mjp_track_job(struct mjp_accel *mjp, struct mjp_sub_desc *desc)
 {
-    struct mjp_exec_tracker *exec;
+    struct mjp_job_tracker *job;
 
-    exec = kzalloc(sizeof(struct mjp_exec_tracker), GFP_KERNEL);
-    if (!exec) {
+    job = kzalloc(sizeof(struct mjp_job_tracker), GFP_KERNEL);
+    if (!job) {
         return -ENOMEM;
     }
 
-    exec->exec_id = desc->job_id;
-    exec->status = -EINPROGRESS;
-    init_completion(&exec->done);
+    job->job_id = desc->job_id;
+    job->status = -EINPROGRESS;
+    init_completion(&job->done);
 
-    int ret = rhashtable_insert_fast(&mjp->exec_tracker,
-                                     &exec->node,
-                                     exec_tracker_params);
+    int ret = rhashtable_insert_fast(&mjp->job_tracker,
+                                     &job->node,
+                                     job_tracker_params);
     if (ret) {
-        kfree(exec);
+        kfree(job);
         return ret;
     }
 
@@ -359,11 +359,11 @@ static int mjp_track_exec(struct mjp_accel *mjp, struct mjp_sub_desc *desc)
 static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
 {
     struct mjp_sub_desc desc;
-    struct mjp_job_exec_req req;
+    struct mjp_job_sub_req req;
     
     if (copy_from_user(&req,
                        (void __user *)arg,
-                       sizeof(struct mjp_job_exec_req))) {
+                       sizeof(struct mjp_job_sub_req))) {
         return -EFAULT;
     }
 
@@ -372,8 +372,8 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
     desc.out_handle = req.out_handle;
     desc.opcode = req.opcode;
 
-    req.exec_id = desc.job_id;
-    if (copy_to_user((void __user *)arg, &req, sizeof(struct mjp_job_exec_req))) {
+    req.job_id = desc.job_id;
+    if (copy_to_user((void __user *)arg, &req, sizeof(struct mjp_job_sub_req))) {
         return -EFAULT;
     }
     
@@ -385,7 +385,7 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
         return 1;
     }
 
-    if (mjp_track_exec(mjp, &desc)) {
+    if (mjp_track_job(mjp, &desc)) {
         return 1;
     }
 
@@ -471,14 +471,14 @@ static const struct pci_device_id mjp_ids[] = {
     { }
 };
 
-static int mjp_exec_tracker_setup(struct mjp_accel *mjp)
+static int mjp_job_tracker_setup(struct mjp_accel *mjp)
 {
-    return rhashtable_init(&mjp->exec_tracker, &exec_tracker_params);
+    return rhashtable_init(&mjp->job_tracker, &job_tracker_params);
 }
 
-static void mjp_exec_tracker_cleanup(struct mjp_accel *mjp)
+static void mjp_job_tracker_cleanup(struct mjp_accel *mjp)
 {
-    rhashtable_destroy(&mjp->exec_tracker);
+    rhashtable_destroy(&mjp->job_tracker);
 }
 
 /* Allocate a DMA buffer */
@@ -797,8 +797,8 @@ static int mjp_probe(struct pci_dev *pdev,
         goto err_setting_up_cdev;
     }
 
-    if ((res = mjp_exec_tracker_setup(mjp)) != 0) {
-        goto err_setting_up_exec_tracker;
+    if ((res = mjp_job_tracker_setup(mjp)) != 0) {
+        goto err_setting_up_job_tracker;
     }
 
     if ((res = mjp_device_reset(mjp)) != 0) {
@@ -818,8 +818,8 @@ static int mjp_probe(struct pci_dev *pdev,
 err_enabling_device:
 err_programming_device_regs:
 err_resetting_device:
-    mjp_exec_tracker_cleanup(mjp);
-err_setting_up_exec_tracker:
+    mjp_job_tracker_cleanup(mjp);
+err_setting_up_job_tracker:
 err_setting_up_cdev:
     mjp_dbuf_pool_cleanup(mjp);
     mjp_queues_cleanup(mjp);
@@ -831,7 +831,7 @@ static void mjp_remove(struct pci_dev *pdev)
 {
     struct mjp_accel *mjp = pci_get_drvdata(pdev);
 
-    mjp_exec_tracker_cleanup(mjp);
+    mjp_job_tracker_cleanup(mjp);
     mjp_dbuf_pool_cleanup(mjp);
     mjp_queues_cleanup(mjp);
     mjp_device_reset(mjp);

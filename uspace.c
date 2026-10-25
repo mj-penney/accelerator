@@ -70,10 +70,10 @@ struct mjp_job {
     struct mjp_float_buf *in_buf;
     struct mjp_float_buf *out_buf;
     uint32_t opcode;
-    uint64_t exec_id; // kernel writes this back to userspace
+    uint64_t job_id; // kernel writes this back to userspace
 };
 
-static struct mjp_job *mjp_job_alloc(struct mjp_accel *mjp)
+static struct mjp_job *mjp_job_init(struct mjp_accel *mjp)
 {
     struct mjp_job *job = malloc(sizeof(struct mjp_job));
     if (!job) {
@@ -91,16 +91,16 @@ static struct mjp_job *mjp_job_alloc(struct mjp_accel *mjp)
     return job;
 }
 
-static void mjp_job_free(struct mjp_accel *mjp, struct mjp_job *job)
+static void mjp_job_cleanup(struct mjp_accel *mjp, struct mjp_job *job)
 {
     mjp_buf_free(mjp, job->in_buf);
     mjp_buf_free(mjp, job->out_buf);
     free(job);
 }
 
-static int mjp_job_exec(struct mjp_accel *mjp, struct mjp_job *job)
+static int mjp_job_submit(struct mjp_accel *mjp, struct mjp_job *job)
 {
-    struct mjp_job_exec_req req = {
+    struct mjp_job_sub_req req = {
         .in_handle = job->in_buf->handle,
         .out_handle = job->out_buf->handle,
         .opcode = job->opcode,
@@ -110,8 +110,8 @@ static int mjp_job_exec(struct mjp_accel *mjp, struct mjp_job *job)
         perror("queue test");
         return -1;
     }
-    // get back the execution id that the kernel assigned
-    job->exec_id = req.exec_id;
+    // get back the job id that the kernel assigned
+    job->job_id = req.job_id;
 
     return 0;
 }
@@ -128,21 +128,21 @@ int main(void)
         .fd = fd,
     };
 
-    struct mjp_job *job1 = mjp_job_alloc(&mjp);
-    struct mjp_job *job2 = mjp_job_alloc(&mjp);
+    struct mjp_job *job1 = mjp_job_init(&mjp);
+    struct mjp_job *job2 = mjp_job_init(&mjp);
 
-    if (mjp_job_exec(&mjp, job1)) {
-        fprintf(stderr, "Error in job1 execution\n");
+    if (mjp_job_submit(&mjp, job1)) {
+        fprintf(stderr, "Error in job1 submission\n");
     }
-    printf("Submitted job1 with execution ID %u\n", job1->exec_id);
+    printf("Submitted job1 with ID %u\n", job1->job_id);
 
-    if (mjp_job_exec(&mjp, job2)) {
-        fprintf(stderr, "Error in job2 execution\n");
+    if (mjp_job_submit(&mjp, job2)) {
+        fprintf(stderr, "Error in job2 submission\n");
     }
-    printf("Submitted job2 with execution ID %u\n", job2->exec_id);
+    printf("Submitted job2 with ID %u\n", job2->job_id);
 
-    mjp_job_free(&mjp, job1);
-    mjp_job_free(&mjp, job2);
+    mjp_job_cleanup(&mjp, job1);
+    mjp_job_cleanup(&mjp, job2);
 
     close(mjp.fd);
     return 0;
