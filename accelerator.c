@@ -213,8 +213,8 @@ static void mjp_job_tracker_complete(struct mjp_accel *mjp,
     struct mjp_job_tracker *job;
 
     job = rhashtable_lookup_fast(&mjp->job_tracker,
-                                  &desc->job_id,
-                                  job_tracker_params);
+                                 &desc->job_id,
+                                 job_tracker_params);
     if (!job) {
         return;
     }
@@ -434,6 +434,35 @@ static int mjp_mmap(struct file *file, struct vm_area_struct *vma)
     return 0;
 }
 
+static int mjp_ioc_job_complete(struct mjp_accel *mjp, unsigned long arg)
+{
+    u64 job_id;
+    struct mjp_job_tracker *job;
+
+    if (copy_from_user(&job_id,
+                       (void __user *)arg,
+                       sizeof(u64))) {
+        return -EFAULT;
+    }
+
+    job = rhashtable_lookup_fast(&mjp->job_tracker,
+                                 &job_id,
+                                 job_tracker_params);
+    if (!job) {
+        return 1;
+    }
+
+    wait_for_completion(&job->done);
+    pr_info("Ioctl: job with ID %llu was completed\n", job->job_id);
+
+    rhashtable_remove_fast(&mjp->job_tracker,
+                           &job->node,
+                           job_tracker_params);
+    kfree(job);
+
+    return 0;
+}
+
 static long accel_ioctl(struct file *file,
                         unsigned int cmd,
                         unsigned long arg)
@@ -443,12 +472,14 @@ static long accel_ioctl(struct file *file,
     switch (cmd) {
         case MJP_IOC_PING:
             return 0;
-        case MJP_IOC_JOB_SUBMIT:
-            return mjp_submit_job(mjp, arg);
         case MJP_IOC_ALLOC_BUFFER:
             return mjp_ioc_alloc_dbuf(mjp, arg);
         case MJP_IOC_FREE_BUFFER:
             return mjp_ioc_free_dbuf(mjp, arg);
+        case MJP_IOC_JOB_SUBMIT:
+            return mjp_submit_job(mjp, arg);
+        case MJP_IOC_JOB_COMPLETE:
+            return mjp_ioc_job_complete(mjp, arg);
         default:
             return -ENOTTY;
     }

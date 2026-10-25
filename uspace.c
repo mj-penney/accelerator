@@ -107,12 +107,21 @@ static int mjp_job_submit(struct mjp_accel *mjp, struct mjp_job *job)
     };
 
     if (ioctl(mjp->fd, MJP_IOC_JOB_SUBMIT, &req)) {
-        perror("queue test");
+        perror("job submission");
         return -1;
     }
     // get back the job id that the kernel assigned
     job->job_id = req.job_id;
 
+    return 0;
+}
+
+static int mjp_job_complete(struct mjp_accel *mjp, struct mjp_job *job)
+{
+    if (ioctl(mjp->fd, MJP_IOC_JOB_COMPLETE, &job->job_id)) {
+        perror("job completion");
+        return -1;
+    }
     return 0;
 }
 
@@ -140,6 +149,13 @@ int main(void)
         fprintf(stderr, "Error in job2 submission\n");
     }
     printf("Submitted job2 with ID %u\n", job2->job_id);
+
+    if (mjp_job_complete(&mjp, job2)) {
+        fprintf(stderr, "Error in job2 completion\n");
+    }
+    if (mjp_job_complete(&mjp, job1)) {
+        fprintf(stderr, "Error in job1 completion\n");
+    }
 
     mjp_job_cleanup(&mjp, job1);
     mjp_job_cleanup(&mjp, job2);
