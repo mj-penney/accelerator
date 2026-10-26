@@ -35,19 +35,19 @@ typedef uint16_t mjp_dbuf_dev_status;
 struct mjp_dbuf {
     void                  *cpu_addr;
     dma_addr_t            dma_addr;
-    u64                   size_bytes;
-    u64                   used_bytes;
+    u64                   size;
+    u64                   alloc_size;
     mjp_dbuf_handle       handle;
     mjp_dbuf_alloc_status alloc_status;
     mjp_dbuf_dev_status   dev_status;
 };
 
-#define MJP_DBUF_POOL_SIZE 16
-#define MJP_DBUF_SIZE_BYTES 1024
+#define MJP_DBUF_POOL_LEN 16
+#define MJP_DBUF_SIZE 1024
 
 struct mjp_dbuf_pool {
     struct mjp_dbuf *pool;
-    u64 size;
+    u64 len;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -113,7 +113,7 @@ static struct mjp_dbuf *mjp_get_dbuf(struct mjp_accel *mjp,
     u64 i;
     struct mjp_dbuf *dbuf;
 
-    for (i = 0; i < mjp->dbuf_pool.size; i++) {
+    for (i = 0; i < mjp->dbuf_pool.len; i++) {
         dbuf = &mjp->dbuf_pool.pool[i];
         if (dbuf->handle == handle) {
             return dbuf;
@@ -145,7 +145,7 @@ static struct mjp_dbuf *mjp_alloc_dbuf(struct mjp_accel *mjp)
 
     // acquire lock here
 
-    for (i = 0; i < mjp->dbuf_pool.size; i++) {
+    for (i = 0; i < mjp->dbuf_pool.len; i++) {
         dbuf = &mjp->dbuf_pool.pool[i];
 
         if (mjp_dbuf_is_free(dbuf)) {
@@ -375,11 +375,11 @@ static int mjp_submit_job(struct mjp_accel *mjp, unsigned long long arg)
     desc.job_id = alloc_job_id();
 
     desc.in_handle = req.in_handle;
-    desc.in_size = in_dbuf->used_bytes;
+    desc.in_size = in_dbuf->alloc_size;
     desc.in_addr = (u64)in_dbuf->dma_addr;
 
     desc.out_handle = req.out_handle;
-    desc.out_size = out_dbuf->used_bytes;
+    desc.out_size = out_dbuf->alloc_size;
     desc.out_addr = (u64)out_dbuf->dma_addr;
 
     desc.opcode = req.opcode;
@@ -438,7 +438,7 @@ static int mjp_mmap(struct file *file, struct vm_area_struct *vma)
                                 vma,
                                 dbuf->cpu_addr,
                                 dbuf->dma_addr,
-                                dbuf->size_bytes);
+                                dbuf->size);
     
     if (ret) {
         return ret;
@@ -666,8 +666,8 @@ static int mjp_dbuf_pool_setup(struct mjp_accel *mjp)
 {
     struct mjp_dbuf_pool *pool = &mjp->dbuf_pool;
 
-    pool->size = MJP_DBUF_POOL_SIZE;
-    pool->pool = kcalloc(pool->size, sizeof(struct mjp_dbuf), GFP_KERNEL);
+    pool->len = MJP_DBUF_POOL_LEN;
+    pool->pool = kcalloc(pool->len, sizeof(struct mjp_dbuf), GFP_KERNEL);
 
     if (!pool->pool) {
         return -ENOMEM;
@@ -675,11 +675,11 @@ static int mjp_dbuf_pool_setup(struct mjp_accel *mjp)
 
     struct mjp_dbuf *dbuf;
     u64 i = 0;
-    while (i < pool->size) {
+    while (i < pool->len) {
         dbuf = &pool->pool[i];
 
         dbuf->cpu_addr = dma_alloc_coherent(&mjp->pdev->dev,
-                                            MJP_DBUF_SIZE_BYTES,
+                                            MJP_DBUF_SIZE,
                                             &dbuf->dma_addr,
                                             GFP_KERNEL);
         if (!dbuf->cpu_addr) {
@@ -687,7 +687,7 @@ static int mjp_dbuf_pool_setup(struct mjp_accel *mjp)
         }
 
         dbuf->handle = i;
-        dbuf->size_bytes = MJP_DBUF_SIZE_BYTES;
+        dbuf->size = MJP_DBUF_SIZE;
         dbuf->alloc_status = MJP_DBUF_FREE;
         dbuf->dev_status = MJP_DBUF_IDLE;
 
@@ -701,7 +701,7 @@ err_allocating_dbuf:
     while (i) {
         dbuf = &pool->pool[i - 1];
         dma_free_coherent(&mjp->pdev->dev,
-                          dbuf->size_bytes,
+                          dbuf->size,
                           dbuf->cpu_addr,
                           dbuf->dma_addr);
         i--;
@@ -718,10 +718,10 @@ static void mjp_dbuf_pool_cleanup(struct mjp_accel *mjp)
 
     struct mjp_dbuf *dbuf;
     u64 i = 0;
-    while (i < pool->size) {
+    while (i < pool->len) {
         dbuf = &pool->pool[i];
         dma_free_coherent(&mjp->pdev->dev,
-                          dbuf->size_bytes,
+                          dbuf->size,
                           dbuf->cpu_addr,
                           dbuf->dma_addr);
 
