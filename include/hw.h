@@ -136,7 +136,7 @@ struct mjp_cpl_desc {
 // IOCTL
 
 struct mjp_ioctl_alloc_buf {
-    uint64_t requested_size_bytes; // userspace sets this
+    uint64_t size; // userspace sets this
     mjp_dbuf_handle handle;        // kernel sets this
 };
 

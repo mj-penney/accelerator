@@ -138,7 +138,7 @@ static bool mjp_dbuf_is_free(struct mjp_dbuf *dbuf)
  * Acquire the 'dbuf_alloc' lock for the dbuf array before allocating the
  * buffer to avoid allocating the same buffer twice.
  */
-static struct mjp_dbuf *mjp_alloc_dbuf(struct mjp_accel *mjp)
+static struct mjp_dbuf *mjp_alloc_dbuf(struct mjp_accel *mjp, u64 size)
 {
     u64 i;
     struct mjp_dbuf *dbuf;
@@ -148,8 +148,10 @@ static struct mjp_dbuf *mjp_alloc_dbuf(struct mjp_accel *mjp)
     for (i = 0; i < mjp->dbuf_pool.len; i++) {
         dbuf = &mjp->dbuf_pool.pool[i];
 
-        if (mjp_dbuf_is_free(dbuf)) {
+        if (mjp_dbuf_is_free(dbuf) && dbuf->size >= size && size != 0) {
+            pr_info("DBUF ALLOCATED\n");
             dbuf->alloc_status = MJP_DBUF_ALLOCATED;
+            dbuf->alloc_size = size;
             return dbuf;
         }
     }
@@ -181,7 +183,9 @@ static long mjp_ioc_alloc_dbuf(struct mjp_accel *mjp, unsigned long arg)
         return -EFAULT;
     }
 
-    dbuf = mjp_alloc_dbuf(mjp);
+    pr_info("requested size: %llu\n", req.size);
+
+    dbuf = mjp_alloc_dbuf(mjp, req.size);
 
     if (!dbuf) {
         return -ENOMEM;
@@ -438,7 +442,7 @@ static int mjp_mmap(struct file *file, struct vm_area_struct *vma)
                                 vma,
                                 dbuf->cpu_addr,
                                 dbuf->dma_addr,
-                                dbuf->size);
+                                dbuf->alloc_size);
     
     if (ret) {
         return ret;

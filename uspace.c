@@ -20,7 +20,7 @@ struct mjp_float_buf {
 };
 
 static struct mjp_float_buf *mjp_buf_alloc(struct mjp_accel *mjp,
-                                           uint64_t size_bytes)
+                                           uint64_t size)
 {
     struct mjp_float_buf *buf = malloc(sizeof(struct mjp_float_buf));
     if (!buf) {
@@ -28,7 +28,7 @@ static struct mjp_float_buf *mjp_buf_alloc(struct mjp_accel *mjp,
     }
 
     struct mjp_ioctl_alloc_buf req = {
-        .requested_size_bytes = size_bytes,
+        .size = size,
     };
 
     if (ioctl(mjp->fd, MJP_IOC_ALLOC_BUFFER, &req)) {
@@ -37,7 +37,7 @@ static struct mjp_float_buf *mjp_buf_alloc(struct mjp_accel *mjp,
 
     printf("Userspace: buffer handle: %u\n", req.handle);
 
-    void *ptr = mmap(NULL, size_bytes,
+    void *ptr = mmap(NULL, size,
                      PROT_READ | PROT_WRITE,
                      MAP_SHARED, mjp->fd,
                      (off_t)req.handle * getpagesize());
@@ -47,8 +47,8 @@ static struct mjp_float_buf *mjp_buf_alloc(struct mjp_accel *mjp,
 
     buf->handle = req.handle;
     buf->buf = (float *)ptr;
-    buf->size = size_bytes;
-    buf->len = size_bytes / sizeof(float);
+    buf->size = size;
+    buf->len = size / sizeof(float);
 
     return buf;
 }
@@ -60,7 +60,7 @@ static void mjp_buf_free(struct mjp_accel *mjp, struct mjp_float_buf *buf)
     }
 
     if (ioctl(mjp->fd, MJP_IOC_FREE_BUFFER, buf->handle)) {
-        perror("allocating dbuf");
+        perror("freeing dbuf");
     }
 
     free(buf);
